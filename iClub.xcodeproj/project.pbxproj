@@ -6,13 +6,30 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		37CC6B3830632CBF0049F16F /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 37CC6B3730632CBF0049F16F /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		37F88CB7306299D800B00149 /* iClub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iClub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		378BEC61308304E200C77631 /* Exceptions for "iClub" folder in "iClub" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 37F88CB6306299D800B00149 /* iClub */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		37F88CB9306299D800B00149 /* iClub */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				378BEC61308304E200C77631 /* Exceptions for "iClub" folder in "iClub" target */,
+			);
 			path = iClub;
 			sourceTree = "<group>";
 		};
@@ -22,15 +39,24 @@
 		37F88CB4306299D800B00149 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				37CC6B3830632CBF0049F16F /* Supabase in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		37CC6B3630632CBF0049F16F /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		37F88CAE306299D800B00149 = {
 			isa = PBXGroup;
 			children = (
 				37F88CB9306299D800B00149 /* iClub */,
+				37CC6B3630632CBF0049F16F /* Frameworks */,
 				37F88CB8306299D800B00149 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -60,6 +86,9 @@
 				37F88CB9306299D800B00149 /* iClub */,
 			);
 			name = iClub;
+			packageProductDependencies = (
+				37CC6B3730632CBF0049F16F /* Supabase */,
+			);
 			productName = iClub;
 			productReference = 37F88CB7306299D800B00149 /* iClub.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +117,9 @@
 			);
 			mainGroup = 37F88CAE306299D800B00149;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				37CC6B3530632AF20049F16F /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 37F88CB8306299D800B00149 /* Products */;
 			projectDirPath = "";
@@ -234,12 +266,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iClub/iClub.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iClub/Info.plist;
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Pour ajouter tes réservations de terrain à ton calendrier.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Pour ne pas vous suggérer de partie quand vous êtes loin du club, en vacances par exemple, même lorsque l'app est fermée. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour vous suggérer des parties uniquement quand vous êtes dans la région du club. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -276,12 +313,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iClub/iClub.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iClub/Info.plist;
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Pour ajouter tes réservations de terrain à ton calendrier.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Pour ne pas vous suggérer de partie quand vous êtes loin du club, en vacances par exemple, même lorsque l'app est fermée. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour vous suggérer des parties uniquement quand vous êtes dans la région du club. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -333,6 +375,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		37CC6B3530632AF20049F16F /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.55.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		37CC6B3730632CBF0049F16F /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 37CC6B3530632AF20049F16F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 37F88CAF306299D800B00149 /* Project object */;
 	validationLevel = 1;

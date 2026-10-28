@@ -96,7 +96,7 @@ struct ProfileView: View {
     /// du parent, accessible en revenant à son compte.
     private func childPane(_ child: ManagedProfile, parent: SessionProfile) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            InlineMessage(kind: .info, message: "Vous gérez le compte de \(child.prenom ?? child.displayName). Réservations, parties et activités se font à son nom.")
+            InlineMessage(kind: .info, message: "Vous gérez le compte de \(child.prenom ?? child.displayName). Réservations, parties, cours et événements se font à son nom.")
             ChildProfileContent(child: child, profile: parent, store: extras) {
                 auth.act(for: nil)
             }

@@ -14,10 +14,17 @@ import UIKit
 
 enum Haptics {
 
-    /// Réservation confirmée, partie rejointe, compte créé.
+    /// Réservation confirmée, partie rejointe, inscription, adhésion, compte
+    /// créé : la petite vibration de confirmation.
+    ///
+    /// Le générateur est préparé juste avant : sans cela, le moteur haptique
+    /// peut être en veille et la vibration arriver en retard, voire pas du
+    /// tout. (Rien ne vibre dans le simulateur : à éprouver sur un iPhone.)
     static func success() {
         #if canImport(UIKit)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
         #endif
     }
 

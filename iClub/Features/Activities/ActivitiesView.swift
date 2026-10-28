@@ -2,8 +2,8 @@
 //  ActivitiesView.swift
 //  iClub
 //
-//  Onglet « Activités » : tout ce que le club organise, regroupé par type,
-//  filtrable par sport. Les activités où le membre est inscrit viennent en tête.
+//  Onglet « Cours » : les cours et événements du club, regroupés par type,
+//  filtrables par sport. Ceux où le membre est inscrit viennent en tête.
 //
 //  Un entraîneur voit en plus un sélecteur « Le club » / « Mes cours » ; un
 //  membre qui ne l'est pas ne le voit jamais.
@@ -60,7 +60,7 @@ struct ActivitiesView: View {
             .padding(.top, 8)
         }
         .background(Brand.background.ignoresSafeArea())
-        .navigationTitle("Activités")
+        .navigationTitle("Cours et événements")
         .navigationDestination(for: ActivityRoute.self) { route in
             ActivityDetailView(activityId: route.activityId, store: store)
         }
@@ -95,8 +95,8 @@ struct ActivitiesView: View {
         } else if store.activities.isEmpty {
             PhasePlaceholder(
                 systemImage: "figure.run",
-                title: "Aucune activité en ce moment",
-                message: "Les cours, stages et événements du club apparaîtront ici dès qu'ils seront ouverts.",
+                title: "Rien pour l'instant",
+                message: "Aucun cours ni événement ouvert à l'inscription pour l'instant.",
                 accent: Brand.pine800
             )
         } else {
@@ -110,7 +110,7 @@ struct ActivitiesView: View {
                 PhasePlaceholder(
                     systemImage: "figure.run",
                     title: "Rien dans ce sport",
-                    message: "Aucune activité ouverte pour ce sport en ce moment."
+                    message: "Aucun cours ni événement ouvert pour ce sport en ce moment."
                 )
             }
 
@@ -118,10 +118,10 @@ struct ActivitiesView: View {
                 section(title: "Vos inscriptions", activities: mine)
             }
 
-            ForEach(ActivityType.displayOrder, id: \.self) { type in
-                let group = others.filter { $0.type == type }
-                if !group.isEmpty {
-                    section(title: type.groupTitle, activities: group)
+            ForEach(ActivityType.displayGroups, id: \.title) { group in
+                let items = others.filter { group.types.contains($0.type) }
+                if !items.isEmpty {
+                    section(title: group.title, activities: items)
                 }
             }
         }

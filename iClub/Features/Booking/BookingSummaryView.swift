@@ -295,6 +295,7 @@ struct BookingSummaryView: View {
 
                 Haptics.success()
                 isConfirming = false
+                Task { await BookingReminders.refresh(for: profile) }
 
                 // Le tunnel se referme derrière l'écran de succès : le geste
                 // arrière ne doit pas ramener sur un récapitulatif dont la

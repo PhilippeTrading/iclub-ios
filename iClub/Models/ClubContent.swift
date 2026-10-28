@@ -45,7 +45,8 @@ nonisolated struct AnnouncementRow: Decodable, Sendable {
             id: id,
             level: niveau.flatMap { AnnouncementLevel(rawValue: $0.lowercased()) } ?? .information,
             title: titre,
-            body: corps ?? ""
+            body: corps ?? "",
+            createdAt: SupabaseDate.parse(createdAt)
         )
     }
 }
@@ -55,6 +56,7 @@ nonisolated struct Announcement: Identifiable, Hashable, Sendable {
     let level: AnnouncementLevel
     let title: String
     let body: String
+    var createdAt: Date?
 }
 
 extension AnnouncementLevel {

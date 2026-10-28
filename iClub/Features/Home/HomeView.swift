@@ -223,7 +223,7 @@ struct HomeView: View {
         // La carte disparaît entièrement s'il n'y a aucun cours, plutôt que
         // d'afficher une liste vide.
         if !store.activities.isEmpty {
-            section("Cours et activités du club") {
+            section("Cours et événements du club") {
                 SurfaceCard {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(store.activities) { activity in
@@ -271,6 +271,22 @@ struct HomeView: View {
                         Text("Aucune adhésion active pour l'instant.")
                             .font(.footnote)
                             .foregroundStyle(Brand.textSecondary)
+
+                        // Les formules du club, et l'adhésion depuis le téléphone.
+                        // Pas pour un enfant sélectionné : c'est le parent qui paie.
+                        if !auth.isActingForChild {
+                            NavigationLink {
+                                MembershipFormulasView()
+                            } label: {
+                                Label("Voir les formules d'adhésion", systemImage: "person.text.rectangle")
+                                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.glassProminent)
+                            .tint(Brand.navy700)
+                            .padding(.top, 6)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

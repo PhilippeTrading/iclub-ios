@@ -434,6 +434,7 @@ enum AuthService {
         // réenregistré si la suppression échoue.
         await PushService.forgetDevice()
         await AttendanceReminders.clear()
+        await BookingReminders.clear()
 
         // 2. La suppression elle-même.
         do {
@@ -497,6 +498,7 @@ enum AuthService {
         // les notifications du membre qui s'en va.
         await PushService.forgetDevice()
         await AttendanceReminders.clear()
+        await BookingReminders.clear()
         MessagingCenter.shared.reset()
         do {
             try await Supa.client.auth.signOut()

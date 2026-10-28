@@ -38,6 +38,24 @@ enum ActivityServiceError: LocalizedError {
     }
 }
 
+extension ActivityServiceError {
+    /// Les messages de la base disent encore « cette activité » : en attendant
+    /// la migration du club, on dit « ce cours » ou « cet événement » selon le
+    /// type, sans rien changer d'autre au message.
+    func worded(for type: ActivityType) -> ActivityServiceError {
+        switch self {
+        case .refused(let message):
+            let lower = type.demonstrative
+            let upper = lower.prefix(1).uppercased() + lower.dropFirst()
+            return .refused(message
+                .replacingOccurrences(of: "cette activité", with: lower)
+                .replacingOccurrences(of: "Cette activité", with: upper))
+        default:
+            return self
+        }
+    }
+}
+
 enum ActivityService {
 
     // MARK: - Lecture

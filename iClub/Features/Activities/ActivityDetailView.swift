@@ -36,13 +36,13 @@ struct ActivityDetailView: View {
             } else {
                 PhasePlaceholder(
                     systemImage: "calendar.badge.exclamationmark",
-                    title: "Activité indisponible",
-                    message: "Elle n'est plus proposée par le club."
+                    title: "Plus proposé",
+                    message: "Ce cours ou cet événement n'est plus proposé par le club."
                 )
             }
         }
         .background(Brand.background.ignoresSafeArea())
-        .navigationTitle(activity?.type.singularLabel ?? "Activité")
+        .navigationTitle(activity?.type.categoryLabel ?? "Cours")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             guard let clubId = auth.sessionProfile?.clubId else { return }
@@ -115,6 +115,8 @@ struct ActivityDetailView: View {
                 .foregroundStyle(Brand.navy800)
 
             HStack(spacing: 6) {
+                // Badge de type : « Cours » ou « Événement », jamais « Activité ».
+                BrandChip(title: activity.type.categoryLabel, tint: Brand.navy700)
                 BrandChip(title: activity.sport.displayName, systemImage: activity.sport.symbolName, tint: activity.sport.accent)
                 BrandChip(title: store.placesLabel(for: activity), tint: activity.isFull ? Brand.textSecondary : activity.sport.accent)
                 if store.isEnrolled(activity.id) {
@@ -282,7 +284,7 @@ struct ActivityDetailView: View {
             if let mine = store.myEnrollment(in: activity.id) {
                 Text(mine.statut == .listeAttente
                      ? "Vous êtes en liste d'attente\(mine.rangListeAttente.map { ", rang \($0)" } ?? "")."
-                     : "Vous êtes inscrit à cette activité.")
+                     : "Vous êtes inscrit à \(activity.type.demonstrative).")
                     .font(.footnote)
                     .foregroundStyle(Brand.textSecondary)
 
@@ -344,24 +346,31 @@ struct ActivityDetailView: View {
             do {
                 let result = try await ActivityService.enroll(activityId: activityId, forProfileId: forId)
                 Haptics.success()
-                resultMessage = Self.resultText(result, who: who)
+                resultMessage = Self.resultText(result, who: who, type: activity?.type ?? .collectif)
                 await store.reload()
             } catch {
                 Haptics.failure()
-                errorMessage = error.localizedDescription
+                errorMessage = enrollmentError(error)
             }
             isWorking = false
         }
     }
 
-    private static func resultText(_ result: EnrollmentResult, who: String?) -> (title: String, message: String) {
+    /// Le refus de la base, au bon mot ; sinon la formule du web.
+    private func enrollmentError(_ error: Error) -> String {
+        let mapped = ActivityServiceError.from(error).worded(for: activity?.type ?? .collectif)
+        if case .refused(let message) = mapped { return message }
+        return "Impossible de t'inscrire pour l'instant."
+    }
+
+    private static func resultText(_ result: EnrollmentResult, who: String?, type: ActivityType) -> (title: String, message: String) {
         let subject = who ?? "Vous"
         switch result.statut {
         case .listeAttente:
             let rank = result.rang.map { ", au rang \($0)" } ?? ""
             return ("Liste d'attente", "\(subject == "Vous" ? "Vous êtes" : "\(subject) est") en liste d'attente\(rank). Une place libérée vous sera attribuée automatiquement.")
         default:
-            return ("Inscription confirmée", "\(subject == "Vous" ? "Vous êtes inscrit" : "\(subject) est inscrit") à cette activité.")
+            return ("Inscription confirmée", "\(subject == "Vous" ? "Vous êtes inscrit" : "\(subject) est inscrit") à \(type.demonstrative).")
         }
     }
 
@@ -375,7 +384,7 @@ struct ActivityDetailView: View {
                 await store.reload()
             } catch {
                 Haptics.failure()
-                errorMessage = error.localizedDescription
+                errorMessage = ActivityServiceError.from(error).worded(for: activity?.type ?? .collectif).localizedDescription
             }
             isWorking = false
         }

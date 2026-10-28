@@ -34,6 +34,7 @@ struct MainTabView: View {
     @Environment(MessagingCenter.self) private var messaging
 
     @Namespace private var bubbleNamespace
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Intercepte la sélection pour détecter le re-tap sur l'onglet courant.
     private var tabSelection: Binding<AppTab> {
@@ -92,7 +93,7 @@ struct MainTabView: View {
                 }
             }
 
-            Tab("Activités", systemImage: "figure.run", value: AppTab.activities) {
+            Tab("Cours", systemImage: "figure.run", value: AppTab.activities) {
                 NavigationStack(path: $router.activitiesPath) {
                     ActivitiesView()
                         .appTopBar()
@@ -131,10 +132,25 @@ struct MainTabView: View {
             await messaging.syncCoachGroups(for: profile)
             // Un rappel « faire l'appel » au début de chaque séance à venir.
             await AttendanceReminders.refresh(for: profile)
+            // Et, pour chaque membre, un rappel une heure avant ses réservations.
+            await BookingReminders.refresh(for: profile)
             await messaging.activate()
         }
         // Tap sur une notification de partie : on ouvre directement la partie,
         // y compris quand la notification a lancé l'app à froid.
+        // Une réservation prise sur le web doit aussi avoir son rappel : on
+        // refait la liste à chaque retour dans l'app.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, let profile = auth.sessionProfile else { return }
+            Task { await BookingReminders.refresh(for: profile) }
+        }
+        // Tap sur un rappel de réservation : l'historique des réservations.
+        .task {
+            if PushService.consumePendingBookingReminder() { router.openReservationHistory() }
+            for await _ in NotificationCenter.default.notifications(named: PushService.bookingReminderRequested) {
+                if PushService.consumePendingBookingReminder() { router.openReservationHistory() }
+            }
+        }
         // Tap sur le rappel d'appel : l'écran d'appel de la séance, directement.
         .task {
             if let sessionId = PushService.consumePendingAttendance() { openAttendance(sessionId) }

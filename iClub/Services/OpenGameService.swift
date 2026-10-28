@@ -173,6 +173,8 @@ enum OpenGameService {
             try await Supa.client
                 .rpc("leave_open_game", params: LeaveOpenGameParams(targetReservationId: gameId))
                 .execute()
+            // Partie quittée : son rappel ne doit plus sonner.
+            BookingReminders.cancel(reservationId: gameId)
         } catch {
             throw translate(error)
         }

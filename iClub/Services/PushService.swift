@@ -26,6 +26,8 @@ enum PushService {
     static let openGameRequested = Notification.Name("iclub.openGameRequested")
     /// Émise quand l'entraîneur touche le rappel « faire l'appel ».
     static let attendanceRequested = Notification.Name("iclub.attendanceRequested")
+    /// Émise quand le membre touche un rappel de réservation.
+    static let bookingReminderRequested = Notification.Name("iclub.bookingReminderRequested")
     /// Émise quand le membre vient d'accepter les notifications : les rappels
     /// programmés sur l'appareil peuvent l'être maintenant.
     static let authorizationGranted = Notification.Name("iclub.notificationsAuthorized")
@@ -123,6 +125,12 @@ enum PushService {
     /// des parties n'existe pas encore au moment du tap.
     private static var pendingGameId: UUID?
     private static var pendingAttendanceSessionId: UUID?
+    private static var pendingBookingReminder = false
+
+    static func consumePendingBookingReminder() -> Bool {
+        defer { pendingBookingReminder = false }
+        return pendingBookingReminder
+    }
 
     static func consumePendingAttendance() -> UUID? {
         defer { pendingAttendanceSessionId = nil }
@@ -132,6 +140,13 @@ enum PushService {
     static func handleTap(userInfo: [AnyHashable: Any]) {
         // Message : on ouvre directement la conversation. Elle se marque lue
         // en s'affichant.
+        // Rappel de réservation : l'historique de ses réservations.
+        if (userInfo["type"] as? String) == BookingReminders.kind {
+            pendingBookingReminder = true
+            NotificationCenter.default.post(name: bookingReminderRequested, object: nil)
+            return
+        }
+
         if isMessage(userInfo), let conversationId = conversationId(in: userInfo) {
             MessagingCenter.shared.open(conversationId: conversationId)
             return

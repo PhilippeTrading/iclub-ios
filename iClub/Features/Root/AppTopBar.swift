@@ -20,8 +20,12 @@ extension View {
 private struct AppTopBar: ViewModifier {
     @Environment(AuthController.self) private var auth
 
+    @Environment(MessagingCenter.self) private var messaging
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var showsNotifications = false
-    @State private var hasUnseen = false
+    /// Notifications arrivées depuis la dernière ouverture de la cloche.
+    @State private var unseenCount = 0
 
     func body(content: Content) -> some View {
         content
@@ -36,21 +40,44 @@ private struct AppTopBar: ViewModifier {
                     Button {
                         showsNotifications = true
                     } label: {
-                        Image(systemName: hasUnseen ? "bell.badge" : "bell")
-                            .symbolRenderingMode(.hierarchical)
+                        Image(systemName: "bell")
+                            // Pastille rouge tant qu'il reste des notifications
+                            // non lues, avec leur nombre.
+                            .overlay(alignment: .topTrailing) {
+                                if unseenCount > 0 {
+                                    Text(unseenCount > 9 ? "9+" : "\(unseenCount)")
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .frame(minWidth: 16, minHeight: 16)
+                                        .background(Brand.error, in: .capsule)
+                                        .offset(x: 8, y: -7)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                            }
+                            .animation(.snappy, value: unseenCount)
                     }
-                    .accessibilityLabel(hasUnseen ? "Notifications, nouvelles" : "Notifications")
+                    .accessibilityLabel(unseenCount > 0 ? "Notifications, \(unseenCount) non lue\(unseenCount > 1 ? "s" : "")" : "Notifications")
                 }
             }
             .sheet(isPresented: $showsNotifications, onDismiss: refreshBadge) {
                 NotificationHistoryView()
             }
             .task(id: auth.sessionProfile?.id) { refreshBadge() }
+            // Retour dans l'app, nouveau message reçu : la pastille se remet à jour.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { refreshBadge() }
+            }
+            .onChange(of: messaging.totalUnread) { _, _ in refreshBadge() }
+            .onReceive(NotificationCenter.default.publisher(for: NotificationHistoryService.seenNotification)) { _ in
+                unseenCount = 0
+            }
     }
 
     private func refreshBadge() {
         Task {
-            hasUnseen = NotificationHistoryService.hasUnseen(await NotificationHistoryService.load())
+            let items = await NotificationHistoryService.load(clubId: auth.sessionProfile?.clubId)
+            unseenCount = NotificationHistoryService.unseenCount(items)
         }
     }
 }

@@ -534,6 +534,7 @@ struct OpenGamesView: View {
                 )
                 Haptics.success()
                 didJoin = true
+                if let me = auth.sessionProfile { Task { await BookingReminders.refresh(for: me) } }
                 await store.reload()
             } catch {
                 // La base refait tous les contrôles sous verrou : ce chemin est

@@ -23,6 +23,8 @@ struct GameNotificationsSection: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var systemStatus: UNAuthorizationStatus = .notDetermined
+    @State private var remindersOn = BookingReminders.isEnabled
+    @Environment(AuthController.self) private var auth
 
     private var systemDenied: Bool { systemStatus == .denied }
 
@@ -46,6 +48,21 @@ struct GameNotificationsSection: View {
                 // Affiché désactivé plutôt que masqué : le membre comprend ce
                 // qu'il manque, et où le rétablir.
                 .disabled(!isLoaded || isSaving || systemDenied)
+
+                Divider().opacity(0.4)
+
+                Toggle(isOn: remindersBinding) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Rappel avant mes réservations")
+                            .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                            .foregroundStyle(Brand.textPrimary)
+                        Text("Une notification une heure avant chaque réservation ou partie.")
+                            .font(.caption)
+                            .foregroundStyle(Brand.textSecondary)
+                    }
+                }
+                .tint(Brand.navy700)
+                .disabled(systemDenied)
 
                 if systemDenied {
                     InlineMessage(kind: .info, message: "Les notifications sont désactivées pour iClub dans les réglages de l'iPhone.")
@@ -106,6 +123,25 @@ struct GameNotificationsSection: View {
                         Haptics.failure()
                     }
                     isSaving = false
+                }
+            }
+        )
+    }
+
+    /// Réglage de l'appareil : les rappels sont programmés sur le téléphone.
+    private var remindersBinding: Binding<Bool> {
+        Binding(
+            get: { remindersOn },
+            set: { newValue in
+                remindersOn = newValue
+                BookingReminders.isEnabled = newValue
+                Haptics.selection()
+                Task {
+                    if newValue, let profile = auth.sessionProfile {
+                        await BookingReminders.refresh(for: profile)
+                    } else {
+                        await BookingReminders.clear()
+                    }
                 }
             }
         )

@@ -215,11 +215,11 @@ struct AttendanceView: View {
                         if !isPresent { set(.present, for: enrollment) }
                         punctualityFor = enrollment.id
                     }
-                    .popover(isPresented: punctualityBinding(enrollment.id), arrowEdge: .bottom) {
-                        PunctualityPopover(isLate: current == .retard) { late in
+                    // Panneau bas avec roue, comme un menu déroulant iOS.
+                    .sheet(isPresented: punctualityBinding(enrollment.id)) {
+                        PunctualitySheet(isLate: current == .retard) { late in
                             set(late ? .retard : .present, for: enrollment)
                         }
-                        .presentationCompactAdaptation(.popover)
                     }
 
                     choiceButton("Absent", systemImage: "xmark", tint: Brand.error, isSelected: isAbsent) {
@@ -329,39 +329,36 @@ struct AttendanceView: View {
 
 // MARK: - À l'heure ou en retard
 
-/// La petite fenêtre qui suit « Présent » : un menu déroulant, « À l'heure »
-/// par défaut.
-private struct PunctualityPopover: View {
+/// Le panneau qui suit « Présent » : une roue « Statut », « À l'heure » par
+/// défaut, et « Fermer » en haut à droite — le menu déroulant d'iOS.
+private struct PunctualitySheet: View {
     @State var isLate: Bool
     let onChange: (Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Présent")
-                .font(.system(.headline, design: .rounded))
-                .foregroundStyle(Brand.textPrimary)
-
+        VStack(spacing: 0) {
             HStack {
-                Text("Ponctualité")
-                    .font(.subheadline)
-                    .foregroundStyle(Brand.textSecondary)
-                Spacer(minLength: 16)
-                Picker("Ponctualité", selection: $isLate) {
-                    Label("À l'heure", systemImage: "checkmark.circle").tag(false)
-                    Label("En retard", systemImage: "clock").tag(true)
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
+                Text("Présent")
+                    .font(.system(.headline, design: .rounded))
+                    .foregroundStyle(Brand.textPrimary)
+                Spacer()
+                Button("Fermer") { dismiss() }
+                    .font(.body.weight(.semibold))
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
 
-            Button("OK") { dismiss() }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Picker("Statut", selection: $isLate) {
+                Text("À l'heure").tag(false)
+                Text("En retard").tag(true)
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
         }
-        .padding(16)
-        .frame(minWidth: 260)
+        .presentationDetents([.height(260)])
+        .presentationDragIndicator(.hidden)
         .onChange(of: isLate) { _, late in
             onChange(late)
         }

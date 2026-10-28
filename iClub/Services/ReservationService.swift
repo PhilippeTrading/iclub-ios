@@ -155,6 +155,8 @@ enum ReservationService {
             .update(ReservationCancelUpdate(by: profileId))
             .eq("id", value: reservationId.uuidString)
             .execute()
+        // Annulée : son rappel ne doit plus sonner.
+        BookingReminders.cancel(reservationId: reservationId)
     }
 
     // MARK: - Mes réservations

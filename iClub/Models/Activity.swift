@@ -35,8 +35,35 @@ nonisolated enum PostgresTime {
 nonisolated enum ActivityType: String, CaseIterable, Sendable, Codable {
     case collectif, stage, individuel, duo, evenement, tournoi, animation
 
-    /// Ordre d'affichage des groupes dans la liste.
-    static let displayOrder: [ActivityType] = [.collectif, .stage, .individuel, .duo, .evenement, .tournoi, .animation]
+    /// Groupes de la liste, dans l'ordre, avec les intitulés du web.
+    static let displayGroups: [(title: String, types: [ActivityType])] = [
+        ("Cours collectifs", [.collectif]),
+        ("Leçons", [.individuel, .duo]),
+        ("Stages", [.stage]),
+        ("Événements", [.evenement, .tournoi, .animation]),
+    ]
+
+    // MARK: Vocabulaire (aligné sur le web, 28 octobre 2026)
+    //
+    // « Cours » : ce à quoi on s'inscrit pour une saison ou un stage.
+    // « Événement » : ce qui a lieu une fois.
+    // « Séance » : une date précise de l'un ou de l'autre.
+    // Le mot « activité » ne s'affiche jamais : il ne reste que dans les noms
+    // techniques des tables.
+
+    /// Événement, tournoi, animation : ce qui a lieu une fois.
+    var isEvent: Bool {
+        switch self {
+        case .evenement, .tournoi, .animation: true
+        default: false
+        }
+    }
+
+    /// « Cours » ou « Événement », pour le badge de type.
+    var categoryLabel: String { isEvent ? "Événement" : "Cours" }
+
+    /// « ce cours » ou « cet événement ».
+    var demonstrative: String { isEvent ? "cet événement" : "ce cours" }
 
     var singularLabel: String {
         switch self {
@@ -47,18 +74,6 @@ nonisolated enum ActivityType: String, CaseIterable, Sendable, Codable {
         case .evenement: "Événement"
         case .tournoi: "Tournoi"
         case .animation: "Animation"
-        }
-    }
-
-    var groupTitle: String {
-        switch self {
-        case .collectif: "Cours collectifs"
-        case .stage: "Stages"
-        case .individuel: "Leçons individuelles"
-        case .duo: "Leçons en duo"
-        case .evenement: "Événements"
-        case .tournoi: "Tournois"
-        case .animation: "Animations"
         }
     }
 

@@ -101,8 +101,16 @@ struct MembershipSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            // Pas de bouton : l'adhésion se prend au club.
-            CollapsedProfileCard(title: "Adhésion", message: "Aucune adhésion active pour l'instant.")
+            CollapsedProfileCard(title: "Adhésion", message: "Aucune adhésion active pour l'instant.") {
+                NavigationLink {
+                    MembershipFormulasView()
+                } label: {
+                    Text("Adhérer")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            }
         }
     }
 }

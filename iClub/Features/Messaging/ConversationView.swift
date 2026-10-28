@@ -27,9 +27,27 @@ struct ConversationView: View {
     @State private var sendError: String?
     @State private var isMuted = false
     @State private var didSend = false
+    /// Membre dont la fiche est ouverte depuis sa photo ou son nom.
+    @State private var selectedAuthor: ConversationParticipant?
+    @State private var showsMembers = false
     @FocusState private var isComposerFocused: Bool
 
     private var myId: UUID? { auth.sessionProfile?.id }
+
+    /// L'autre personne d'une conversation à deux.
+    private var otherParticipant: ConversationParticipant? {
+        if let id = summary?.autreProfileId, let person = participants[id] { return person }
+        return participants.values.first { $0.profileId != myId }
+    }
+
+    /// Moi d'abord, puis les autres par ordre alphabétique.
+    private var sortedParticipants: [ConversationParticipant] {
+        participants.values.sorted { a, b in
+            if a.profileId == myId { return true }
+            if b.profileId == myId { return false }
+            return a.nomAffiche.localizedCompare(b.nomAffiche) == .orderedAscending
+        }
+    }
 
     private var summary: ConversationSummary? {
         messaging.conversations.first { $0.id == conversationId }
@@ -67,7 +85,8 @@ struct ConversationView: View {
                             message: message,
                             isMine: message.auteurProfileId == myId,
                             author: participants[message.auteurProfileId],
-                            showsAuthor: showsAuthor(at: index)
+                            showsAuthor: showsAuthor(at: index),
+                            onSelectAuthor: { selectedAuthor = participants[message.auteurProfileId] }
                         )
                         .id(message.id)
                     }
@@ -87,16 +106,43 @@ struct ConversationView: View {
         .navigationTitle(summary?.displayTitle ?? "Conversation")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // En groupe : la liste des membres. À deux : la fiche de l'autre.
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Toggle(isOn: muteBinding) {
-                        Label("Sourdine", systemImage: "bell.slash")
+                if summary?.isGroup == true {
+                    Button {
+                        showsMembers = true
+                    } label: {
+                        Image(systemName: "person.2.circle")
                     }
-                } label: {
-                    Image(systemName: isMuted ? "bell.slash.fill" : "ellipsis.circle")
+                    .accessibilityLabel("Membres du groupe")
+                } else if let other = otherParticipant {
+                    Button {
+                        selectedAuthor = other
+                    } label: {
+                        MemberAvatar(url: other.avatarUrl, initials: other.initials, size: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Profil de \(other.nomAffiche)")
                 }
-                .accessibilityLabel("Options de la conversation")
             }
+        }
+        .sheet(isPresented: $showsMembers) {
+            GroupMembersSheet(
+                title: summary?.displayTitle ?? "Groupe",
+                members: sortedParticipants,
+                myId: myId,
+                isMuted: muteBinding
+            )
+        }
+        .sheet(item: $selectedAuthor) { author in
+            MemberCardSheet(
+                profileId: author.profileId,
+                fallbackName: author.nomAffiche,
+                fallbackAvatar: author.avatarUrl,
+                // Écrire en privé n'a de sens que depuis un groupe, ou vers
+                // quelqu'un d'autre que la personne déjà en face.
+                canWritePrivately: summary?.isGroup == true || summary?.autreProfileId != author.profileId
+            )
         }
         .alert("Message non envoyé", isPresented: sendErrorBinding) {
             Button("OK") { sendError = nil }
@@ -289,10 +335,9 @@ struct ConversationView: View {
 
     // MARK: - Outils
 
-    /// Le nom de l'auteur n'est rappelé qu'en groupe, et seulement quand il
-    /// change d'un message à l'autre.
+    /// Photo, prénom et nom de l'auteur au début de chaque suite de messages
+    /// qu'il envoie, en groupe comme à deux.
     private func showsAuthor(at index: Int) -> Bool {
-        guard summary?.isGroup == true else { return false }
         let message = messages[index]
         guard message.auteurProfileId != myId else { return false }
         return index == 0 || messages[index - 1].auteurProfileId != message.auteurProfileId
@@ -310,22 +355,36 @@ private struct MessageBubbleRow: View {
     let isMine: Bool
     let author: ConversationParticipant?
     let showsAuthor: Bool
+    let onSelectAuthor: () -> Void
+
+    /// Largeur réservée à la photo, pour que les bulles d'une même personne
+    /// restent alignées sous la première.
+    private let avatarColumn: CGFloat = 34
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             if isMine { Spacer(minLength: 48) }
 
-            if !isMine && showsAuthor {
-                MemberAvatar(url: author?.avatarUrl, initials: author?.initials ?? "?", size: 28)
-            } else if !isMine {
-                Color.clear.frame(width: 0, height: 0)
+            if !isMine {
+                if showsAuthor {
+                    Button(action: onSelectAuthor) {
+                        MemberAvatar(url: author?.avatarUrl, initials: author?.initials ?? "?", size: avatarColumn)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Voir le profil de \(author?.nomAffiche ?? "ce membre")")
+                } else {
+                    Color.clear.frame(width: avatarColumn, height: 1)
+                }
             }
 
             VStack(alignment: isMine ? .trailing : .leading, spacing: 3) {
-                if showsAuthor, let author {
-                    Text(author.firstName)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Brand.textSecondary)
+                if showsAuthor, !isMine {
+                    Button(action: onSelectAuthor) {
+                        Text(author?.nomAffiche ?? "Membre")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Brand.navy700)
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 Text(message.corps)
@@ -333,8 +392,10 @@ private struct MessageBubbleRow: View {
                     .foregroundStyle(isMine ? Color.white : Brand.textPrimary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
+                    // Les bulles reçues sont teintées : sur un fond blanc, une
+                    // bulle blanche ne se verrait pas.
                     .background(
-                        isMine ? Brand.navy700 : Brand.surface,
+                        isMine ? Brand.navy700 : Brand.navy700.opacity(0.08),
                         in: .rect(cornerRadius: 18, style: .continuous)
                     )
                     .opacity(message.isPending ? 0.6 : 1)
@@ -348,6 +409,73 @@ private struct MessageBubbleRow: View {
             if !isMine { Spacer(minLength: 48) }
         }
         .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
-        .accessibilityElement(children: .combine)
+        .padding(.top, showsAuthor ? 6 : 0)
+    }
+}
+
+// MARK: - Membres du groupe
+
+/// Les membres d'un groupe ; un tap ouvre la fiche de l'un d'eux. La sourdine,
+/// qui était dans le menu « … », est rangée ici.
+private struct GroupMembersSheet: View {
+    let title: String
+    let members: [ConversationParticipant]
+    let myId: UUID?
+    @Binding var isMuted: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MessagingCenter.self) private var messaging
+    @State private var selected: ConversationParticipant?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Toggle(isOn: $isMuted) {
+                        Label("Couper les notifications", systemImage: "bell.slash")
+                    }
+                    .tint(Brand.navy700)
+                } footer: {
+                    Text("Pour vous seulement : les autres membres continuent d'être prévenus.")
+                }
+
+                Section("\(members.count) membre\(members.count > 1 ? "s" : "")") {
+                    ForEach(members) { member in
+                        Button {
+                            if member.profileId != myId { selected = member }
+                        } label: {
+                            HStack(spacing: 12) {
+                                MemberAvatar(url: member.avatarUrl, initials: member.initials, size: 38)
+                                Text(member.profileId == myId ? "\(member.nomAffiche) (vous)" : member.nomAffiche)
+                                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                    .foregroundStyle(Brand.textPrimary)
+                                Spacer()
+                                if member.profileId != myId {
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Brand.textSecondary)
+                                }
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fermer", systemImage: "xmark") { dismiss() }
+                }
+            }
+            .sheet(item: $selected) { member in
+                MemberCardSheet(profileId: member.profileId, fallbackName: member.nomAffiche, fallbackAvatar: member.avatarUrl)
+            }
+        }
+        .presentationDetents([.medium, .large])
+        // « Envoyer un message privé » depuis une fiche : la conversation change
+        // derrière, la liste des membres n'a plus lieu d'être.
+        .onChange(of: messaging.path) { _, _ in dismiss() }
     }
 }

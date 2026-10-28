@@ -47,8 +47,10 @@ struct ParticipantsView: View {
         .navigationTitle("Joueurs")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { continueBar }
+        // Le bouton du bas est l'action principale : la bulle ne doit pas le couvrir.
+        .hidesMessageBubble()
         .sheet(isPresented: $isSearchingMember) {
-            if let profile = auth.sessionProfile {
+            if let profile = auth.activeProfile {
                 MemberSearchSheet(
                     clubId: court.clubId,
                     myProfileId: profile.id,
@@ -64,7 +66,7 @@ struct ParticipantsView: View {
             }
         }
         .task {
-            guard let profile = auth.sessionProfile else { return }
+            guard let profile = auth.activeProfile else { return }
             await draft.loadCredits(profile: profile)
         }
     }
@@ -258,7 +260,7 @@ struct ParticipantsView: View {
                 Brand.textSecondary.opacity(0.08),
                 in: .rect(cornerRadius: Radius.chip, style: .continuous)
             )
-        } else if auth.sessionProfile?.hasActiveMembership == false {
+        } else if auth.activeProfile?.hasActiveMembership == false {
             InlineMessage(
                 kind: .info,
                 message: "Sans adhésion active, tu n'as pas de crédit invité : les invités règlent le supplément."

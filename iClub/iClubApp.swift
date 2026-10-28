@@ -13,7 +13,6 @@ import GoogleSignIn
 @main
 struct iClubApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @Environment(\.scenePhase) private var scenePhase
 
     /// Contrôleur de session global, injecté en environnement et consulté par
     /// tous les écrans pour connaître le membre connecté.
@@ -32,6 +31,9 @@ struct iClubApp: App {
                 .environment(auth)
                 .environment(catalog)
                 .environment(router)
+                // Unique : la bulle, les boutons « Écrire » et le tap sur une
+                // notification agissent sur la même feuille de messagerie.
+                .environment(MessagingCenter.shared)
                 // Toute l'interface est en français : les contrôles système
                 // (sélecteur de date, formats de nombres) doivent suivre, même
                 // si l'appareil est configuré dans une autre langue.
@@ -41,17 +43,6 @@ struct iClubApp: App {
                 // de l'identifiant client inversé.
                 .onOpenURL { url in GIDSignIn.sharedInstance.handle(url) }
                 #endif
-        }
-        // Le prochain réveil est redemandé à chaque passage en arrière-plan :
-        // iOS n'honore qu'une demande à la fois, et l'oublie si l'app est
-        // fermée de force.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background { ReengagementService.scheduleRefresh() }
-        }
-        // Réveil périodique : c'est le déclencheur principal des suggestions.
-        .backgroundTask(.appRefresh(ReengagementService.refreshTaskID)) {
-            await ReengagementService.evaluate()
-            await MainActor.run { ReengagementService.scheduleRefresh() }
         }
     }
 }

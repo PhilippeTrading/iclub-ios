@@ -7,6 +7,11 @@
 //  En **double**, deux colonnes ÉQUIPE A et ÉQUIPE B, deux places chacune.
 //  En **simple**, une seule rangée de deux places, sans notion d'équipe.
 //
+//  Repliée, la carte se limite à l'essentiel — terrain, niveau, heure et une
+//  pastille par place (photo du joueur, ou « + » si elle est libre) — pour que
+//  la journée se parcoure d'un coup d'œil. Un tap la déplie en version
+//  complète, avec les équipes et le bouton d'action.
+//
 
 import SwiftUI
 
@@ -23,10 +28,108 @@ struct OpenGameCard: View {
     let onJoin: () -> Void
     /// Sortie de la partie : annulation pour l'hôte, simple départ sinon.
     let onLeave: () -> Void
+    /// Version complète, ou résumé compact.
+    var isExpanded = true
+    /// `nil` : la carte ne se replie pas (écran ouvert depuis une notification).
+    var onToggleExpanded: (() -> Void)?
 
     private var role: OpenGame.Role { game.role(for: myProfileId) }
 
     var body: some View {
+        if isExpanded {
+            expandedBody
+        } else {
+            collapsedBody
+        }
+    }
+
+    // MARK: - Repliée
+
+    private var collapsedBody: some View {
+        Button { onToggleExpanded?() } label: {
+            SurfaceCard(padding: 14) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(game.courtName)
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                            .foregroundStyle(Brand.textPrimary)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 4)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Brand.textSecondary)
+                    }
+
+                    Text(game.levelAndFormatLabel)
+                        .font(.footnote)
+                        .foregroundStyle(Brand.textSecondary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 10) {
+                        Label(game.slot.label, systemImage: "clock")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(game.isFacingAutomaticCancellation ? Brand.error : Brand.textPrimary)
+                            .lineLimit(1)
+                            .fixedSize()
+
+                        Spacer(minLength: 4)
+
+                        seatStrip
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(collapsedAccessibilityLabel)
+        .accessibilityHint("Afficher le détail de la partie")
+    }
+
+    /// Une pastille par place : les places libres d'abord, comme une main
+    /// tendue, puis les joueurs inscrits — équipe A puis équipe B en double.
+    private var seatStrip: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<game.freeSlots, id: \.self) { _ in
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(game.sport.accent)
+                    .frame(width: 34, height: 34)
+                    .overlay {
+                        Circle().strokeBorder(
+                            game.sport.accent.opacity(0.4),
+                            style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                        )
+                    }
+            }
+
+            ForEach(orderedPlayers, id: \.profileId) { player in
+                let info = roster[player.profileId]
+                MemberAvatar(
+                    url: info?.avatarUrl.flatMap(URL.init(string:)),
+                    initials: info?.initials ?? player.initials,
+                    size: 34
+                )
+            }
+        }
+    }
+
+    private var orderedPlayers: [OpenGame.Player] {
+        guard game.usesTeams else { return game.players }
+        return Team.allCases.flatMap { game.players(in: $0) }
+    }
+
+    private var collapsedAccessibilityLabel: String {
+        let names = orderedPlayers.map { roster[$0.profileId]?.firstName ?? $0.firstName }
+        var parts = [game.courtName, game.levelAndFormatLabel, game.slot.label, game.freeSlotsLabel]
+        if !names.isEmpty { parts.append("avec " + names.formatted(.list(type: .and).locale(AppLocale.french))) }
+        return parts.joined(separator: ", ")
+    }
+
+    // MARK: - Dépliée
+
+    private var expandedBody: some View {
         SurfaceCard(padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 header
@@ -50,7 +153,23 @@ struct OpenGameCard: View {
 
     // MARK: - En-tête
 
+    /// Toute la bande du haut replie la carte, pas seulement la flèche : c'est
+    /// là que le doigt revient naturellement après l'avoir dépliée.
+    @ViewBuilder
     private var header: some View {
+        if let onToggleExpanded {
+            Button { onToggleExpanded() } label: {
+                headerContent
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Replier la partie")
+        } else {
+            headerContent
+        }
+    }
+
+    private var headerContent: some View {
         HStack(spacing: 12) {
             Image(systemName: game.sport.symbolName)
                 .font(.system(size: 16, weight: .medium))
@@ -64,10 +183,12 @@ struct OpenGameCard: View {
                     .foregroundStyle(Brand.textPrimary)
                     .lineLimit(1)
 
+                // Deux lignes : avec la pastille et la flèche, une seule
+                // tronquait le format (« Dou… »).
                 Text(game.levelAndFormatLabel)
                     .font(.caption)
                     .foregroundStyle(Brand.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 8)
@@ -77,6 +198,13 @@ struct OpenGameCard: View {
                 tint: game.isFull ? Brand.textSecondary : game.sport.accent
             )
             .fixedSize()
+
+            if onToggleExpanded != nil {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Brand.textSecondary)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
@@ -303,6 +431,13 @@ struct OpenGameCard: View {
 
     return ScrollView {
         VStack(spacing: 12) {
+            // Repliées, telles qu'affichées dans la liste.
+            OpenGameCard(game: padelDouble, roster: infos, myProfileId: outsiderId,
+                         onSelectPlayer: { _ in }, onSelectFreeSlot: { _ in },
+                         onJoin: {}, onLeave: {}, isExpanded: false, onToggleExpanded: {})
+            OpenGameCard(game: tennisSingles, roster: infos, myProfileId: outsiderId,
+                         onSelectPlayer: { _ in }, onSelectFreeSlot: { _ in },
+                         onJoin: {}, onLeave: {}, isExpanded: false, onToggleExpanded: {})
             OpenGameCard(game: hostAlone, roster: infos, myProfileId: marieId,
                          onSelectPlayer: { _ in }, onSelectFreeSlot: { _ in },
                          onJoin: {}, onLeave: {})

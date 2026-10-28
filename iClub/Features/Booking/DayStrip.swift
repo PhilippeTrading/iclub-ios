@@ -14,6 +14,9 @@ struct DayStrip: View {
     /// Accent du sport courant, pour que la bande change de teinte avec l'onglet.
     let accent: Color
     @Binding var selection: Date
+    /// Jours sélectionnables. Les autres restent visibles, estompés : la
+    /// semaine garde sa continuité, sans promettre ce qu'elle n'a pas.
+    var isEnabled: (Date) -> Bool = { _ in true }
 
     private let calendar = Calendar.current
 
@@ -44,6 +47,7 @@ struct DayStrip: View {
     private func dayButton(_ day: Date) -> some View {
         let isSelected = calendar.isDate(day, inSameDayAs: selection)
         let isToday = calendar.isDateInToday(day)
+        let isEnabled = isEnabled(day)
 
         return Button {
             guard !isSelected else { return }
@@ -79,6 +83,8 @@ struct DayStrip: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
         .id(day)
         .accessibilityLabel(day.longFrenchDate)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])

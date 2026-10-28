@@ -50,6 +50,23 @@ extension Date {
         )
     }
 
+    /// « Aujourd'hui », « Demain », puis « Samedi 24 octobre » — pour séparer
+    /// une liste par jour.
+    var relativeFrenchDayTitle: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(self) { return "Aujourd'hui" }
+        if calendar.isDateInTomorrow(self) { return "Demain" }
+
+        let value = formatted(
+            Date.FormatStyle(date: .omitted, time: .omitted)
+                .weekday(.wide)
+                .day()
+                .month(.wide)
+                .locale(AppLocale.french)
+        )
+        return value.prefix(1).uppercased() + value.dropFirst()
+    }
+
     /// « 22 » — numéro du jour dans le mois, sans le mois ni l'année.
     var frenchDayNumber: String {
         formatted(

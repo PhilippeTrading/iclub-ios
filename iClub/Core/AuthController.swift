@@ -25,7 +25,45 @@ final class AuthController {
     }
 
     private(set) var phase: Phase = .bootstrapping
+    /// Le compte connecté. C'est toujours lui qui écrit en base : un enfant n'a
+    /// pas de session, le parent agit pour lui.
     private(set) var sessionProfile: SessionProfile?
+
+    // MARK: - Compte famille
+
+    /// Enfants dont le membre est responsable (`mes_profils_geres`, hors
+    /// lui-même). Vide pour un membre sans famille : le sélecteur n'apparaît pas.
+    private(set) var managedChildren: [ManagedProfile] = []
+
+    /// Enfant pour qui le parent agit, ou `nil` pour lui-même. Toujours `nil`
+    /// à la connexion : on entre sur son propre compte.
+    private(set) var actingChildId: UUID?
+
+    /// Profil au nom duquel les onglets lisent et agissent : le compte
+    /// connecté, ou l'enfant sélectionné.
+    var activeProfile: SessionProfile? {
+        guard let sessionProfile else { return nil }
+        guard let actingChildId,
+              let child = managedChildren.first(where: { $0.profileId == actingChildId })
+        else { return sessionProfile }
+        return SessionProfile.child(child, of: sessionProfile)
+    }
+
+    var isActingForChild: Bool { activeProfile?.id != sessionProfile?.id }
+
+    func act(for childId: UUID?) {
+        guard childId != actingChildId else { return }
+        actingChildId = managedChildren.contains(where: { $0.profileId == childId }) ? childId : nil
+    }
+
+    /// À rappeler après l'ajout ou le retrait d'un enfant.
+    func reloadFamily() async {
+        guard let profile = sessionProfile else { return }
+        managedChildren = await ActivityService.managedProfiles(clubId: profile.clubId).filter { !$0.estMoi }
+        if let actingChildId, !managedChildren.contains(where: { $0.profileId == actingChildId }) {
+            self.actingChildId = nil
+        }
+    }
 
     private var listener: Task<Void, Never>?
 
@@ -50,6 +88,7 @@ final class AuthController {
         switch event {
         case .signedOut:
             sessionProfile = nil
+            clearFamily()
             phase = .signedOut
 
         default:
@@ -64,6 +103,14 @@ final class AuthController {
             if event == .tokenRefreshed, sessionProfile != nil { return }
 
             await loadProfile(for: session.user)
+            if event == .signedIn || event == .initialSession {
+                await reloadFamily()
+            }
+            // Le jeton APNs a pu arriver avant la session : on le rattache au
+            // membre dès qu'il est connu.
+            if event == .signedIn || event == .initialSession {
+                await PushService.registerCurrentToken()
+            }
         }
     }
 
@@ -124,6 +171,11 @@ final class AuthController {
         await loadProfile(for: user)
     }
 
+    private func clearFamily() {
+        managedChildren = []
+        actingChildId = nil
+    }
+
     // MARK: - Actions
 
     func signIn(email: String, password: String) async throws {
@@ -145,6 +197,7 @@ final class AuthController {
         // On bascule immédiatement plutôt que d'attendre l'événement, pour que
         // l'interface réponde même sans réseau.
         sessionProfile = nil
+        clearFamily()
         phase = .signedOut
     }
 }

@@ -271,7 +271,7 @@ struct BookingView: View {
     /// membre qui a une adhésion active serait une erreur plus visible que de
     /// n'afficher aucun prix.
     private var hidesPrices: Bool {
-        auth.sessionProfile?.hasActiveMembership ?? true
+        auth.activeProfile?.hasActiveMembership ?? true
     }
 
     // MARK: - États

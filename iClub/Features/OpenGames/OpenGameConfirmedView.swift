@@ -41,6 +41,11 @@ struct OpenGameConfirmedView: View {
         // un formulaire dont la partie est déjà créée.
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) { listBar }
+        // Le bouton du bas est l'action principale : la bulle ne doit pas le couvrir.
+        .hidesMessageBubble()
+        // Le membre vient de voir la valeur de l'app : c'est le moment de
+        // proposer les notifications de parties.
+        .offersNotificationOptIn(when: true)
     }
 
     private var successMark: some View {

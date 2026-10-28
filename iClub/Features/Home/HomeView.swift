@@ -21,7 +21,8 @@ struct HomeView: View {
     @State private var isLeaving = false
     @State private var leaveError: String?
 
-    private var profile: SessionProfile? { auth.sessionProfile }
+    /// Le compte au nom duquel on agit : le sien, ou celui d'un enfant.
+    private var profile: SessionProfile? { auth.activeProfile }
 
     /// L'accueil ne met en avant que les deux sports principaux, et seulement
     /// s'ils ont un terrain actif : on ne propose jamais de réserver un sport
@@ -205,7 +206,7 @@ struct HomeView: View {
 
                         Button("Réserver un court") {
                             Haptics.tap()
-                            router.selectedTab = .book
+                            router.openBooking()
                         }
                         .buttonStyle(.glass)
                         .controlSize(.regular)
@@ -389,7 +390,7 @@ struct HomeView: View {
                 } else {
                     try await ReservationService.cancel(
                         reservationId: reservation.id,
-                        by: profile.id
+                        by: auth.sessionProfile?.id ?? profile.id
                     )
                 }
                 Haptics.destructive()

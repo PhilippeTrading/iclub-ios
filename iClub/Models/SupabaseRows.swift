@@ -83,18 +83,21 @@ struct ClubMemberRow: Decodable, Sendable {
     /// profil : ils sont propres au club et tenus par son secrétariat.
     let classementTennis: String?
     let classementPadel: Double?
+    /// Droit d'encadrer des cours, accordé par un administrateur.
+    let estEntraineur: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id, role
         case clubId = "club_id"
         case profileId = "profile_id"
         case isAdmin = "is_admin"
+        case estEntraineur = "est_entraineur"
         case classementTennis = "classement_tennis"
         case classementPadel = "classement_padel"
     }
 
     static let columns =
-        "id, club_id, profile_id, role, is_admin, classement_tennis, classement_padel"
+        "id, club_id, profile_id, role, is_admin, classement_tennis, classement_padel, est_entraineur"
 }
 
 // MARK: - memberships

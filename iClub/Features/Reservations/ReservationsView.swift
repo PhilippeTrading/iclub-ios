@@ -49,8 +49,10 @@ struct ReservationsView: View {
         .navigationDestination(for: MyReservation.self) { reservation in
             ReservationDetailView(reservation: reservation, store: store)
         }
-        .task(id: auth.sessionProfile?.id) {
-            guard let profile = auth.sessionProfile else { return }
+        // Les réservations du compte actif : un parent voit celles de l'enfant
+        // sélectionné.
+        .task(id: auth.activeProfile?.id) {
+            guard let profile = auth.activeProfile else { return }
             await store.load(clubId: profile.clubId, profileId: profile.id)
         }
         .refreshable { await store.reload() }
@@ -113,6 +115,12 @@ struct ReservationsView: View {
     private func cancel(_ reservation: MyReservation) {
         guard let profile = auth.sessionProfile else { return }
         pendingCancel = nil
+        // Quitter une partie n'agit que pour le compte connecté : impossible
+        // pour un enfant tant que la base ne le permet pas.
+        if reservation.isOpenGame && auth.isActingForChild {
+            cancelError = "Pour retirer votre enfant de cette partie, contactez le club."
+            return
+        }
         isCancelling = true
 
         Task {

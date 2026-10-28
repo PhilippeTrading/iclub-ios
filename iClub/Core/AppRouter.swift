@@ -14,7 +14,11 @@ import SwiftUI
 final class AppRouter {
     var selectedTab: AppTab = .home
 
-    /// Pile de navigation de l'onglet « Réserver ». Portée par le routeur et
+    /// Pile de l'onglet « Activités ».
+    var activitiesPath = NavigationPath()
+
+    /// Pile de navigation de l'onglet « Réserver », dont la racine est la
+    /// réservation d'un créneau. Portée par le routeur et
     /// non par la vue : l'écran de confirmation doit pouvoir refermer le tunnel
     /// derrière lui, pour que le geste arrière ne ramène pas dans un
     /// récapitulatif dont la réservation est déjà enregistrée.
@@ -46,7 +50,8 @@ final class AppRouter {
 
     func openBooking(for sport: Sport) {
         bookingSport = sport
-        selectedTab = .book
+        bookingPath = NavigationPath()
+        selectedTab = .reservations
     }
 
     /// Remet toute la navigation à zéro. Les piles peuvent porter des données
@@ -55,11 +60,26 @@ final class AppRouter {
     func reset() {
         selectedTab = .home
         bookingPath = NavigationPath()
+        activitiesPath = NavigationPath()
         openGamesPath = NavigationPath()
         homePath = NavigationPath()
         bookingSport = nil
         bookingDate = nil
         bookingSurface = nil
+    }
+
+    /// Onglet « Réservations », à la racine : la réservation d'un créneau.
+    func openBooking() {
+        bookingPath = NavigationPath()
+        selectedTab = .reservations
+    }
+
+    /// Historique des réservations, poussé sur la racine de l'onglet.
+    func openReservationHistory() {
+        var path = NavigationPath()
+        path.append(ReservationHistoryRoute())
+        bookingPath = path
+        selectedTab = .reservations
     }
 
     /// Referme le tunnel de réservation et revient à l'accueil.

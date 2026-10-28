@@ -101,11 +101,15 @@ nonisolated struct JoinOpenGameParams: Encodable, Sendable {
     /// `nil` en simple, où la notion d'équipe n'existe pas.
     let targetEquipe: String?
     let targetCote: String
+    /// Enfant qu'un parent inscrit à sa place ; absent pour soi-même. La base
+    /// vérifie le droit (`peut_agir_pour … 'reserver'`).
+    var targetProfileId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case targetReservationId = "target_reservation_id"
         case targetEquipe = "target_equipe"
         case targetCote = "target_cote"
+        case targetProfileId = "target_profile_id"
     }
 }
 
@@ -146,14 +150,15 @@ enum OpenGameService {
 
     // MARK: Adhésion
 
-    static func join(game: OpenGame, team: Team?, side: Side) async throws {
+    static func join(game: OpenGame, team: Team?, side: Side, forChild childId: UUID? = nil) async throws {
         do {
             try await Supa.client
                 .rpc("join_open_game", params: JoinOpenGameParams(
                     targetReservationId: game.id,
                     // L'équipe n'est transmise qu'en double.
                     targetEquipe: game.usesTeams ? team?.rawValue : nil,
-                    targetCote: side.rawValue
+                    targetCote: side.rawValue,
+                    targetProfileId: childId
                 ))
                 .execute()
         } catch {

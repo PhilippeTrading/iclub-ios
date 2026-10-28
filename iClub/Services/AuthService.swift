@@ -430,27 +430,40 @@ enum AuthService {
         // 1. Les fichiers d'abord : après l'appel, plus rien ne les référence.
         await AvatarService.deleteAllFiles(profileId: profileId)
 
+        // L'appareil est oublié tant que la session est encore valide ; il est
+        // réenregistré si la suppression échoue.
+        await PushService.forgetDevice()
+        await AttendanceReminders.clear()
+
         // 2. La suppression elle-même.
         do {
             try await Supa.client.rpc("delete_my_account").execute()
-        } catch let error as PostgrestError where error.code == "PGRST202" {
-            // Fonction absente : la migration n'a pas été exécutée.
-            throw AuthServiceError.accountDeletionUnavailable
-        } catch let error as PostgrestError where error.code == "P0001" {
-            // Refus métier (dernier administrateur du club) : message rédigé
-            // pour être lu tel quel.
-            throw AuthServiceError.other(error.message)
         } catch {
-            // Jamais de détail technique sur une opération aussi sensible.
-            throw AuthServiceError.accountDeletionFailed
+            await PushService.registerCurrentToken()
+            throw mappedDeletionError(error)
         }
 
         // 3. La session est déjà invalide côté serveur ; on la ferme ici et on
         // efface ce que l'appareil garde du compte.
         signOutOfProviders()
-        await ReengagementService.reset()
+        MessagingCenter.shared.reset()
         try? await Supa.client.auth.signOut()
         clearLocalCaches()
+    }
+
+    private static func mappedDeletionError(_ error: Error) -> AuthServiceError {
+        switch (error as? PostgrestError)?.code {
+        case "PGRST202":
+            // Fonction absente : la migration n'a pas été exécutée.
+            return .accountDeletionUnavailable
+        case "P0001":
+            // Refus métier (dernier administrateur du club) : message rédigé
+            // pour être lu tel quel.
+            return .other((error as? PostgrestError)?.message ?? "")
+        default:
+            // Jamais de détail technique sur une opération aussi sensible.
+            return .accountDeletionFailed
+        }
     }
 
     /// Les photos de profil passent par `AsyncImage`, qui met en cache via
@@ -480,9 +493,11 @@ enum AuthService {
         // reste active, et le prochain appui reconnecte le même compte sans
         // laisser choisir.
         signOutOfProviders()
-        // Les préférences et l'historique de relances appartiennent au membre
-        // qui se déconnecte, pas au suivant sur cet appareil.
-        await ReengagementService.reset()
+        // Tant que la session est valide : l'appareil ne doit plus recevoir
+        // les notifications du membre qui s'en va.
+        await PushService.forgetDevice()
+        await AttendanceReminders.clear()
+        MessagingCenter.shared.reset()
         do {
             try await Supa.client.auth.signOut()
         } catch {

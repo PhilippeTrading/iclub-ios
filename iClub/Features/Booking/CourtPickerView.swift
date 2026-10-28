@@ -161,7 +161,9 @@ struct CourtPickerView: View {
     /// Ouvre l'étape des participants. Le brouillon est réinitialisé ici : il
     /// ne doit pas conserver les joueurs d'un créneau abandonné.
     private func select(_ court: Court) {
-        guard let profile = auth.sessionProfile else { return }
+        // Le premier joueur est celui au nom duquel on réserve : soi, ou
+        // l'enfant sélectionné. Le créateur reste le compte connecté.
+        guard let profile = auth.activeProfile else { return }
 
         draft.start(
             court: court,
@@ -194,7 +196,7 @@ struct CourtPickerView: View {
     }
 
     private var hidesPrices: Bool {
-        auth.sessionProfile?.hasActiveMembership ?? true
+        auth.activeProfile?.hasActiveMembership ?? true
     }
 
     private func accessibilityLabel(for state: CourtSlotState) -> String {

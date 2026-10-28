@@ -25,6 +25,10 @@ struct SessionProfile: Sendable {
     let sexe: Sexe?
     let role: String
     let isAdmin: Bool
+    /// Entraîneur du club : `club_members.est_entraineur`, ou l'ancien rôle
+    /// « entraineur ». La base vérifie tout ; l'app ne fait que montrer ou
+    /// cacher l'espace entraîneur.
+    var isCoach: Bool = false
     let clubId: UUID
     let clubName: String
     let classementTennis: String?
@@ -63,5 +67,39 @@ struct SessionProfile: Sendable {
         if let prenom, !prenom.isEmpty { return prenom }
         if !nom.isEmpty { return nom }
         return email.split(separator: "@").first.map(String.init) ?? email
+    }
+}
+
+extension SessionProfile {
+    /// Le profil d'un enfant vu comme un profil de session, pour que les
+    /// onglets lisent et proposent les choses à son nom.
+    ///
+    /// Ce que la base ne laisse pas lire au parent reste prudent : la date de
+    /// naissance est reconstituée depuis l'âge, et l'adhésion de l'enfant est
+    /// tenue pour inconnue (donc non active).
+    static func child(_ child: ManagedProfile, of parent: SessionProfile) -> SessionProfile {
+        let birth = child.age.flatMap { Calendar.current.date(byAdding: .year, value: -$0, to: .now) }
+        return SessionProfile(
+            id: child.profileId,
+            clubMemberId: child.clubMemberId ?? parent.clubMemberId,
+            email: "",
+            nom: child.nom ?? "",
+            prenom: child.prenom,
+            displayName: child.displayName,
+            avatarUrl: child.avatarUrl.flatMap(URL.init(string:)),
+            telephone: parent.telephone,
+            dateNaissance: birth,
+            sexe: child.sexe.flatMap { Sexe(rawValue: $0.uppercased()) },
+            role: "membre",
+            isAdmin: false,
+            isCoach: false,
+            clubId: parent.clubId,
+            clubName: parent.clubName,
+            classementTennis: child.classementTennis,
+            classementPadel: child.classementPadel,
+            hasActiveMembership: false,
+            activeMembershipPeriod: nil,
+            activeMembershipDetails: nil
+        )
     }
 }

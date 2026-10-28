@@ -84,6 +84,11 @@ struct BookingConfirmedView: View {
         // qu'aucun geste ne ramène dans un récapitulatif périmé.
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) { homeBar }
+        // Le bouton du bas est l'action principale : la bulle ne doit pas le couvrir.
+        .hidesMessageBubble()
+        // Le membre vient de voir la valeur de l'app : c'est le moment de
+        // proposer les notifications de parties.
+        .offersNotificationOptIn(when: true)
     }
 
     // MARK: - Coche

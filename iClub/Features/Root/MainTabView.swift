@@ -9,23 +9,31 @@
 //
 //  Un re-tap sur l'onglet déjà actif revient à la racine de sa pile.
 //
+//  Par-dessus les onglets flotte la bulle de messagerie, qui ouvre la liste
+//  des conversations en feuille.
+//
 
 import SwiftUI
 
 enum AppTab: Hashable, CaseIterable {
     case home
-    case book
-    case openGames
     case reservations
+    case openGames
+    case activities
     case profile
 }
+
+/// Historique « Mes réservations », poussé sur la racine de l'onglet
+/// « Réserver ».
+struct ReservationHistoryRoute: Hashable {}
 
 struct MainTabView: View {
     @Environment(AuthController.self) private var auth
     @Environment(ClubCatalog.self) private var catalog
     @Environment(AppRouter.self) private var router
+    @Environment(MessagingCenter.self) private var messaging
 
-    @State private var reservationsPath = NavigationPath()
+    @Namespace private var bubbleNamespace
 
     /// Intercepte la sélection pour détecter le re-tap sur l'onglet courant.
     private var tabSelection: Binding<AppTab> {
@@ -43,19 +51,35 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var router = router
+        @Bindable var messaging = messaging
 
         return TabView(selection: tabSelection) {
             Tab("Accueil", systemImage: "house.fill", value: AppTab.home) {
                 // Pile propre à l'accueil : la carte de prochaine réservation
-                // ouvre le même détail que « Mes réservations ».
+                // ouvre le même détail que l'historique des réservations.
                 NavigationStack(path: $router.homePath) {
                     HomeView()
+                        .appTopBar()
                 }
             }
 
-            Tab("Réserver", systemImage: "calendar.badge.plus", value: AppTab.book) {
+            // La racine est la réservation d'un créneau ; l'historique est à un
+            // tap, en haut à droite.
+            Tab("Réserver", systemImage: "list.bullet.rectangle.portrait", value: AppTab.reservations) {
                 NavigationStack(path: $router.bookingPath) {
                     BookingView()
+                        .appTopBar()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                NavigationLink(value: ReservationHistoryRoute()) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                }
+                                .accessibilityLabel("Historique")
+                            }
+                        }
+                        .navigationDestination(for: ReservationHistoryRoute.self) { _ in
+                            ReservationsView()
+                        }
                 }
             }
 
@@ -64,57 +88,149 @@ struct MainTabView: View {
             Tab("Parties", systemImage: "figure.tennis.circle.fill", value: AppTab.openGames) {
                 NavigationStack(path: $router.openGamesPath) {
                     OpenGamesView()
+                        .appTopBar()
                 }
             }
 
-            Tab("Réservations", systemImage: "list.bullet.rectangle.portrait", value: AppTab.reservations) {
-                NavigationStack(path: $reservationsPath) {
-                    ReservationsView()
+            Tab("Activités", systemImage: "figure.run", value: AppTab.activities) {
+                NavigationStack(path: $router.activitiesPath) {
+                    ActivitiesView()
+                        .appTopBar()
                 }
             }
 
-            // TODO(étape 2) : remplacer par la photo de profil réelle une fois
-            // l'upload d'avatar en place, comme l'App Store le fait avec iCloud.
             Tab("Profil", systemImage: "person.crop.circle.fill", value: AppTab.profile) {
                 NavigationStack {
                     ProfileView()
+                        .appTopBar()
                 }
             }
         }
         .tint(Brand.navy700)
+        .overlay(alignment: .bottomTrailing) { messageBubble }
+        .sheet(isPresented: $messaging.isSheetPresented) {
+            MessagesSheet()
+                .navigationTransition(.zoom(sourceID: "message-bubble", in: bubbleNamespace))
+        }
+        .alert("Messagerie", isPresented: messagingErrorBinding) {
+            Button("OK") { messaging.errorMessage = nil }
+        } message: {
+            Text(messaging.errorMessage ?? "")
+        }
         // Charge le catalogue du club dès que la session est connue, puis reste
         // à l'écoute des modifications faites par l'admin (Realtime).
         .task(id: auth.sessionProfile?.clubId) {
             guard let clubId = auth.sessionProfile?.clubId else { return }
             await catalog.activate(clubId: clubId)
         }
-        // Tap sur une suggestion de partie : on ouvre l'onglet des parties,
+        // Conversations et non-lus, tenus à jour en temps réel.
+        .task(id: auth.sessionProfile?.id) {
+            guard let profile = auth.sessionProfile else { return }
+            // Les groupes de cours de l'entraîneur, créés ou complétés avant
+            // de charger la liste.
+            await messaging.syncCoachGroups(for: profile)
+            // Un rappel « faire l'appel » au début de chaque séance à venir.
+            await AttendanceReminders.refresh(for: profile)
+            await messaging.activate()
+        }
+        // Tap sur une notification de partie : on ouvre directement la partie,
         // y compris quand la notification a lancé l'app à froid.
+        // Tap sur le rappel d'appel : l'écran d'appel de la séance, directement.
         .task {
-            if ReengagementService.consumePendingOpenGames() { openGamesTab() }
-            for await _ in NotificationCenter.default.notifications(named: ReengagementService.openGamesRequested) {
-                _ = ReengagementService.consumePendingOpenGames()
-                openGamesTab()
+            if let sessionId = PushService.consumePendingAttendance() { openAttendance(sessionId) }
+            for await _ in NotificationCenter.default.notifications(named: PushService.attendanceRequested) {
+                if let sessionId = PushService.consumePendingAttendance() { openAttendance(sessionId) }
+            }
+        }
+        .task {
+            if let gameId = PushService.consumePendingGame() { openGame(gameId) }
+            for await _ in NotificationCenter.default.notifications(named: PushService.openGameRequested) {
+                if let gameId = PushService.consumePendingGame() { openGame(gameId) }
             }
         }
     }
 
-    private func openGamesTab() {
-        router.openGamesPath = NavigationPath()
+    // MARK: - Bulle de messagerie
+
+    /// Ronde, en verre, au-dessus de la barre d'onglets. Elle porte le total
+    /// des non-lus et s'efface sur les écrans dont l'action principale est en
+    /// bas, pour ne jamais la masquer.
+    @ViewBuilder
+    private var messageBubble: some View {
+        if !messaging.isBubbleHidden {
+            Button {
+                Haptics.tap()
+                messaging.present()
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Brand.navy700)
+                    .frame(width: 54, height: 54)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .overlay(alignment: .topTrailing) {
+                        if messaging.totalUnread > 0 {
+                            Text(messaging.totalUnread > 99 ? "99+" : "\(messaging.totalUnread)")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .frame(minWidth: 20, minHeight: 20)
+                                .background(Brand.error, in: .capsule)
+                                .offset(x: 4, y: -4)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .matchedTransitionSource(id: "message-bubble", in: bubbleNamespace)
+            .accessibilityLabel(bubbleAccessibilityLabel)
+            .padding(.trailing, 20)
+            // Au-dessus de la barre d'onglets flottante.
+            .padding(.bottom, 92)
+            .transition(.scale.combined(with: .opacity))
+        }
+    }
+
+    private var bubbleAccessibilityLabel: String {
+        switch messaging.totalUnread {
+        case 0: "Messages"
+        case 1: "Messages, 1 non lu"
+        case let count: "Messages, \(count) non lus"
+        }
+    }
+
+    private var messagingErrorBinding: Binding<Bool> {
+        Binding(
+            get: { messaging.errorMessage != nil },
+            set: { if !$0 { messaging.errorMessage = nil } }
+        )
+    }
+
+    // MARK: - Navigation
+
+    private func openAttendance(_ sessionId: UUID) {
+        var path = NavigationPath()
+        path.append(AttendanceRoute(sessionId: sessionId))
+        router.activitiesPath = path
+        router.selectedTab = .activities
+    }
+
+    private func openGame(_ gameId: UUID) {
+        var path = NavigationPath()
+        path.append(OpenGameDetailRoute(gameId: gameId))
+        router.openGamesPath = path
         router.selectedTab = .openGames
     }
 
     private func popToRoot(_ tab: AppTab) {
         switch tab {
-        case .book:
+        case .activities:
+            guard !router.activitiesPath.isEmpty else { return }
+            withAnimation(.smooth) { router.activitiesPath = NavigationPath() }
+        case .reservations:
             guard !router.bookingPath.isEmpty else { return }
             withAnimation(.smooth) { router.bookingPath = NavigationPath() }
         case .openGames:
             guard !router.openGamesPath.isEmpty else { return }
             withAnimation(.smooth) { router.openGamesPath = NavigationPath() }
-        case .reservations:
-            guard !reservationsPath.isEmpty else { return }
-            withAnimation(.smooth) { reservationsPath = NavigationPath() }
         case .home:
             guard !router.homePath.isEmpty else { return }
             withAnimation(.smooth) { router.homePath = NavigationPath() }
@@ -129,4 +245,5 @@ struct MainTabView: View {
         .environment(AuthController())
         .environment(ClubCatalog())
         .environment(AppRouter())
+        .environment(MessagingCenter.shared)
 }

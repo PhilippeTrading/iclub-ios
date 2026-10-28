@@ -20,6 +20,11 @@ import SwiftUI
 
 struct OpenGameSportRoute: Hashable {}
 
+/// Détail d'une partie, ouvert depuis une notification.
+struct OpenGameDetailRoute: Hashable {
+    let gameId: UUID
+}
+
 struct OpenGameSlotRoute: Hashable {
     let sport: Sport
 }

@@ -275,8 +275,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iClub/Info.plist;
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Pour ajouter tes réservations de terrain à ton calendrier.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Pour ne pas vous suggérer de partie quand vous êtes loin du club, en vacances par exemple, même lorsque l'app est fermée. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour vous suggérer des parties uniquement quand vous êtes dans la région du club. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Pour photographier une pièce demandée par le club, une licence ou une attestation par exemple.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -322,8 +321,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iClub/Info.plist;
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Pour ajouter tes réservations de terrain à ton calendrier.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Pour ne pas vous suggérer de partie quand vous êtes loin du club, en vacances par exemple, même lorsque l'app est fermée. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour vous suggérer des parties uniquement quand vous êtes dans la région du club. Votre position reste sur votre téléphone et n'est jamais envoyée au club.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Pour photographier une pièce demandée par le club, une licence ou une attestation par exemple.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

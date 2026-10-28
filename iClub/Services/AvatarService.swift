@@ -88,6 +88,34 @@ enum AvatarService {
         return url
     }
 
+    // MARK: - Retrait
+
+    /// « Retirer la photo » : les fichiers du dossier d'abord, puis
+    /// `avatar_url` à `null` ; les initiales reprennent leur place.
+    static func removePhoto(profileId: UUID) async throws {
+        await deleteAllFiles(profileId: profileId)
+
+        let updated: [ProfileRow] = try await Supa.client
+            .from("profiles")
+            .update(AvatarRemoval())
+            .eq("id", value: profileId.uuidString)
+            .select(ProfileRow.allColumns)
+            .execute()
+            .value
+
+        guard !updated.isEmpty else {
+            throw AvatarError.updateRejected
+        }
+    }
+
+    private nonisolated struct AvatarRemoval: Encodable, Sendable {
+        enum CodingKeys: String, CodingKey { case avatarUrl = "avatar_url" }
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeNil(forKey: .avatarUrl)
+        }
+    }
+
     // MARK: - Suppression
 
     /// Efface tous les fichiers du dossier `avatars/{profile_id}/`, quelle que

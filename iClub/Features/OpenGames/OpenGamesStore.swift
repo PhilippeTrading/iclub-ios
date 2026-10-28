@@ -88,6 +88,14 @@ final class OpenGamesStore {
         await observeChanges(clubId: clubId)
     }
 
+    /// Charge sans s'abonner, si rien ne l'a encore fait. Pour un écran poussé
+    /// avant que la racine de l'onglet n'ait lancé `activate`.
+    func ensureLoaded(clubId: UUID) async {
+        guard phase == .idle else { return }
+        self.clubId = clubId
+        await reload()
+    }
+
     func reload() async {
         guard let clubId else { return }
         if games.isEmpty { phase = .loading }

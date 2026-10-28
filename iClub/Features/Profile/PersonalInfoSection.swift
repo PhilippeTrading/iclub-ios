@@ -118,10 +118,13 @@ struct PersonalInfoSection: View {
 
             Spacer(minLength: 12)
 
+            // Une ligne, tronquée au milieu : une adresse e-mail ne se coupe
+            // jamais en deux (« demoad-min »).
             Text(value)
                 .font(.system(.subheadline, design: .rounded, weight: .medium))
                 .foregroundStyle(isMissing ? Brand.textSecondary : Brand.textPrimary)
-                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
@@ -202,15 +205,17 @@ struct PersonalInfoSection: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 6) {
-                ForEach(Sexe.allCases) { option in
+                // « Femme » puis « Homme », comme le web.
+                ForEach([Sexe.femme, Sexe.homme]) { option in
                     let isSelected = sexe == option
                     Button {
                         sexe = option
                         Haptics.selection()
                     } label: {
-                        Text(option.rawValue)
+                        Text(option.displayName)
                             .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                            .frame(width: 42, height: 32)
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
                             .foregroundStyle(isSelected ? Color.white : Brand.textSecondary)
                             .background {
                                 Capsule(style: .continuous)

@@ -28,8 +28,9 @@ enum Brand {
 
     // MARK: - Neutres
 
-    /// Fond de page.
-    static let background = Color(.neutral50)
+    /// Fond de page : blanc. Le crème `neutral50` d'origine reste dans le
+    /// catalogue de couleurs si l'on veut y revenir.
+    static let background = Color(.neutral0)
     /// Fond de carte posée sur le fond de page.
     static let surface = Color(.neutral0)
     /// Texte principal.

@@ -65,6 +65,8 @@ struct OpenGameFormView: View {
         .safeAreaInset(edge: .bottom) {
             if creationBlock == nil { confirmBar }
         }
+        // Le bouton du bas est l'action principale : la bulle ne doit pas le couvrir.
+        .hidesMessageBubble()
         .alert("Créneau indisponible", isPresented: $slotTaken) {
             Button("Choisir un autre créneau") {
                 router.openGamesPath = NavigationPath()

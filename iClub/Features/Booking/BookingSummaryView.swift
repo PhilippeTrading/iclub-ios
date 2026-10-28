@@ -52,6 +52,8 @@ struct BookingSummaryView: View {
         .navigationTitle("Récapitulatif")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { confirmBar }
+        // Le bouton du bas est l'action principale : la bulle ne doit pas le couvrir.
+        .hidesMessageBubble()
         .alert("Créneau indisponible", isPresented: $slotWasTaken) {
             Button("Choisir un autre créneau") {
                 // Retour à la racine du tunnel : la liste des créneaux est

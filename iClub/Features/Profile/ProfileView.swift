@@ -2,8 +2,10 @@
 //  ProfileView.swift
 //  iClub
 //
-//  Identité, photo de profil, informations personnelles et déconnexion.
-//  Classements et carte d'adhésion détaillée arrivent à l'étape suivante.
+//  Même contenu que le profil web (/member/profil), dans la direction
+//  artistique de l'app : identité et adhésion, informations personnelles,
+//  adhésion, classements, famille, pièces, reçus, notifications, autres
+//  espaces, déconnexion et suppression du compte.
 //
 
 import PhotosUI
@@ -22,49 +24,37 @@ struct ProfileView: View {
 
     /// Photo choisie dans la bibliothèque, en attente d'envoi.
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var showsPhotoLibrary = false
     @State private var isUploadingPhoto = false
     @State private var photoError: String?
+
+    /// Enfants, pièces, reçus : ce que l'écran lit en plus du profil de session.
+    @State private var extras = ProfileExtrasStore()
 
     private var profile: SessionProfile? { auth.sessionProfile }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                identityCard
-
-                if let profile {
-                    PersonalInfoSection(profile: profile) {
-                        await auth.refreshSessionProfile()
-                    }
-                    .padding(.horizontal, 20)
-
-                    RankingsSection(profile: profile) {
-                        await auth.refreshSessionProfile()
-                    }
-                    .padding(.horizontal, 20)
-
-                    SuggestionsSection()
-                        .padding(.horizontal, 20)
+                if auth.isActingForChild, let profile, let child = actingChild {
+                    childPane(child, parent: profile)
+                } else {
+                    accountContent
                 }
-
-                PhasePlaceholder(
-                    systemImage: "pencil.and.list.clipboard",
-                    title: "La suite du profil",
-                    message: "Carte d'adhésion détaillée."
-                )
-
-                signOutButton
-                    .padding(.horizontal, 20)
-
-                deleteAccountButton
-                    .padding(.horizontal, 20)
-
-                Spacer(minLength: 24)
             }
             .padding(.top, 12)
         }
         .background(Brand.background.ignoresSafeArea())
-        .navigationTitle("Profil")
+        .navigationTitle(auth.isActingForChild ? (actingChild?.prenom ?? "Profil") : "Profil")
+        .task(id: profile?.id) {
+            guard let profile else { return }
+            await extras.load(profile: profile)
+        }
+        .refreshable {
+            await auth.refreshSessionProfile()
+            if let profile { await extras.load(profile: profile) }
+        }
+        .photosPicker(isPresented: $showsPhotoLibrary, selection: $pickedPhoto, matching: .images, photoLibrary: .shared())
         .confirmationDialog(
             "Se déconnecter de iClub ?",
             isPresented: $showSignOutConfirmation,
@@ -96,6 +86,77 @@ struct ProfileView: View {
         }
     }
 
+    /// L'enfant pour qui l'on agit, s'il y en a un.
+    private var actingChild: ManagedProfile? {
+        auth.managedChildren.first { $0.profileId == auth.activeProfile?.id }
+    }
+
+    /// Onglet Profil en compte enfant : sa fiche, et le retour à son compte.
+    /// Le compte lui-même (informations, déconnexion, suppression) reste celui
+    /// du parent, accessible en revenant à son compte.
+    private func childPane(_ child: ManagedProfile, parent: SessionProfile) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            InlineMessage(kind: .info, message: "Vous gérez le compte de \(child.prenom ?? child.displayName). Réservations, parties et activités se font à son nom.")
+            ChildProfileContent(child: child, profile: parent, store: extras) {
+                auth.act(for: nil)
+            }
+            Button {
+                Haptics.selection()
+                auth.act(for: nil)
+            } label: {
+                Label("Revenir à mon compte", systemImage: "arrow.uturn.backward")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.glass)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var accountContent: some View {
+        identityCard
+
+        if let profile {
+            PersonalInfoSection(profile: profile) {
+                await auth.refreshSessionProfile()
+            }
+            .padding(.horizontal, 20)
+
+            MembershipSection(profile: profile)
+                .padding(.horizontal, 20)
+
+            RankingsSection(profile: profile) {
+                await auth.refreshSessionProfile()
+            }
+            .padding(.horizontal, 20)
+
+            FamilySection(profile: profile, store: extras)
+                .padding(.horizontal, 20)
+
+            DocumentsSection(profile: profile, store: extras)
+                .padding(.horizontal, 20)
+
+            ReceiptsSection(receipts: extras.receipts, clubSlug: extras.clubSlug)
+                .padding(.horizontal, 20)
+
+            GameNotificationsSection(profileId: profile.id)
+                .padding(.horizontal, 20)
+
+            OtherSpacesRow(profile: profile, clubSlug: extras.clubSlug)
+                .padding(.horizontal, 20)
+        }
+
+        signOutButton
+            .padding(.horizontal, 20)
+
+        deleteAccountButton
+            .padding(.horizontal, 20)
+
+        Spacer(minLength: 24)
+    }
+
     // MARK: - Identité
 
     @ViewBuilder
@@ -110,13 +171,19 @@ struct ProfileView: View {
                             .font(.editorial(.title3))
                             .foregroundStyle(Brand.textPrimary)
 
+                        // Tronquée au milieu, jamais coupée dans l'adresse.
                         Text(profile.email)
                             .font(.footnote)
                             .foregroundStyle(Brand.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
                         Text(profile.clubName)
                             .metaLabelStyle()
                             .padding(.top, 2)
+
+                        MembershipBadge(profile: profile)
+                            .padding(.top, 4)
                     }
 
                     Spacer(minLength: 0)
@@ -136,15 +203,20 @@ struct ProfileView: View {
 
     // MARK: - Photo de profil
 
-    /// Avatar tapable, avec pastille d'appareil photo en coin. On s'appuie sur
-    /// `PhotosPicker`, qui présente la bibliothèque hors du processus de l'app :
-    /// aucune autorisation à demander, et l'app ne voit que la photo choisie.
+    /// Avatar tapable : « Changer la photo », et « Retirer la photo » quand il y
+    /// en a une. La bibliothèque passe par le sélecteur système, hors du
+    /// processus de l'app : aucune autorisation à demander.
     private func editablePhoto(_ profile: SessionProfile) -> some View {
-        PhotosPicker(
-            selection: $pickedPhoto,
-            matching: .images,
-            photoLibrary: .shared()
-        ) {
+        Menu {
+            Button("Changer la photo", systemImage: "photo.on.rectangle") {
+                showsPhotoLibrary = true
+            }
+            if profile.avatarUrl != nil {
+                Button("Retirer la photo", systemImage: "trash", role: .destructive) {
+                    removePhoto()
+                }
+            }
+        } label: {
             AvatarView(url: profile.avatarUrl, initials: profile.initials, size: 60)
                 .overlay {
                     if isUploadingPhoto {
@@ -170,7 +242,24 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .disabled(isUploadingPhoto)
-        .accessibilityLabel("Modifier ma photo de profil")
+        .accessibilityLabel("Photo de profil")
+    }
+
+    private func removePhoto() {
+        guard let profileId = profile?.id else { return }
+        isUploadingPhoto = true
+        photoError = nil
+        Task {
+            do {
+                try await AvatarService.removePhoto(profileId: profileId)
+                await auth.refreshSessionProfile()
+                Haptics.success()
+            } catch {
+                photoError = error.localizedDescription
+                Haptics.warning()
+            }
+            isUploadingPhoto = false
+        }
     }
 
     private var photoErrorBinding: Binding<Bool> {

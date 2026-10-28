@@ -140,6 +140,7 @@ enum ProfileService {
             sexe: profile.sexe.flatMap { Sexe(rawValue: $0.uppercased()) },
             role: member.role ?? "membre",
             isAdmin: member.isAdmin ?? false,
+            isCoach: member.estEntraineur == true || member.role == "entraineur",
             clubId: member.clubId,
             clubName: clubName ?? "Mon club",
             classementTennis: member.classementTennis,
@@ -270,8 +271,15 @@ enum ProfileService {
                 .value
 
             // Le tri par `created_at` décroissant est fait côté serveur : on prend
-            // ensuite la première ligne `a_jour`, jamais la première ligne trouvée.
-            return rows.first(where: \.isActive)
+            // ensuite la première ligne `a_jour` dont la période couvre
+            // aujourd'hui, comme le web — jamais la première ligne trouvée.
+            let today = Calendar.current.startOfDay(for: .now)
+            return rows.first { row in
+                guard row.isActive else { return false }
+                let starts = SupabaseDate.parse(row.dateDebut).map { $0 <= today } ?? true
+                let ends = SupabaseDate.parse(row.dateFin).map { $0 >= today } ?? true
+                return starts && ends
+            }
         } catch {
             return nil
         }

@@ -23,6 +23,13 @@ enum AppTab: Hashable, CaseIterable {
     case profile
 }
 
+/// Clé de relecture des terrains fermés : le club, et la personne au nom de
+/// qui l'on réserve.
+private struct CourtAccessKey: Hashable {
+    let clubId: UUID?
+    let profileId: UUID?
+}
+
 /// Historique « Mes réservations », poussé sur la racine de l'onglet
 /// « Réserver ».
 struct ReservationHistoryRoute: Hashable {}
@@ -142,7 +149,14 @@ struct MainTabView: View {
         // refait la liste à chaque retour dans l'app.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, let profile = auth.sessionProfile else { return }
-            Task { await BookingReminders.refresh(for: profile) }
+            Task {
+                await BookingReminders.refresh(for: profile)
+                await refreshCourtAccess()
+            }
+        }
+        // Terrains fermés : pour soi, ou pour l'enfant sélectionné en haut.
+        .task(id: CourtAccessKey(clubId: auth.sessionProfile?.clubId, profileId: auth.activeProfile?.id)) {
+            await refreshCourtAccess()
         }
         // Tap sur un rappel de réservation : l'historique des réservations.
         .task {
@@ -218,6 +232,10 @@ struct MainTabView: View {
             get: { messaging.errorMessage != nil },
             set: { if !$0 { messaging.errorMessage = nil } }
         )
+    }
+
+    private func refreshCourtAccess() async {
+        await catalog.refreshAccess(childId: auth.isActingForChild ? auth.activeProfile?.id : nil)
     }
 
     // MARK: - Navigation

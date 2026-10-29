@@ -84,6 +84,9 @@ struct OpenGameSportPickerView: View {
                         .surfaceCard(cornerRadius: Radius.inner)
                     }
                     .buttonStyle(.plain)
+                    // Aucun terrain réservable dans ce sport : rien à ouvrir.
+                    .disabled(catalog.courtCount(for: sport) == 0)
+                    .opacity(catalog.courtCount(for: sport) == 0 ? 0.5 : 1)
                 }
 
                 Spacer(minLength: 24)
@@ -98,6 +101,7 @@ struct OpenGameSportPickerView: View {
 
     private func courtCountLabel(_ sport: Sport) -> String {
         let count = catalog.courtCount(for: sport)
+        if count == 0 { return "Aucun terrain de \(sport.displayName.lowercased()) à réserver." }
         return count > 1 ? "\(count) terrains" : "\(count) terrain"
     }
 

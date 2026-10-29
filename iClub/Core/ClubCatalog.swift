@@ -25,8 +25,17 @@ final class ClubCatalog {
     }
 
     private(set) var state: State = .idle
+    /// Tous les terrains actifs du club. Pour retrouver le nom d'un terrain ;
+    /// pour réserver, passer par `courts(for:)`, qui écarte les terrains fermés.
     private(set) var courts: [Court] = []
     private(set) var settings: [Sport: ClubSportSettings] = [:]
+
+    /// Terrains que la personne au nom de qui l'on réserve ne peut pas
+    /// réserver (`terrains_interdits`). Vide par défaut, et en cas d'échec :
+    /// la base refuse de toute façon une réservation interdite.
+    ///
+    /// On n'annonce jamais un terrain caché : il n'apparaît simplement pas.
+    private(set) var forbiddenCourtIds: Set<UUID> = []
 
     private var clubId: UUID?
 
@@ -43,10 +52,21 @@ final class ClubCatalog {
         return Sport.allCases.filter(played.contains)
     }
 
-    /// Terrains d'un sport, dans l'ordre d'affichage voulu par l'admin
-    /// (`ordre`, appliqué côté serveur puis re-garanti ici).
+    /// Terrains **réservables** d'un sport, dans l'ordre voulu par l'admin
+    /// (`ordre`, appliqué côté serveur puis re-garanti ici). Planning, création
+    /// de partie et compteurs passent tous par là.
     func courts(for sport: Sport) -> [Court] {
+        allCourts(for: sport).filter { !forbiddenCourtIds.contains($0.id) }
+    }
+
+    /// Tous les terrains actifs d'un sport, fermés compris : pour ce qui ne
+    /// relève pas d'une réservation (un entraîneur qui crée son cours).
+    func allCourts(for sport: Sport) -> [Court] {
         courts.filter { $0.sport == sport }.sorted { $0.ordre < $1.ordre }
+    }
+
+    func isForbidden(_ courtId: UUID) -> Bool {
+        forbiddenCourtIds.contains(courtId)
     }
 
     /// Tout compteur de terrains se calcule ici, jamais en dur.
@@ -81,6 +101,17 @@ final class ClubCatalog {
     /// n'affiche alors rien plutôt qu'une heure inventée.
     var latestClosingMinutes: Int? {
         settings.values.map(\.fermetureMinutes).max()
+    }
+
+    // MARK: - Terrains fermés
+
+    /// Relit les terrains fermés pour la personne au nom de qui l'on réserve :
+    /// soi (`childId == nil`) ou un enfant. Pas de temps réel sur ce réglage :
+    /// à rappeler à chaque affichage du planning et des parties, au « tirer
+    /// pour actualiser », et au retour de l'app au premier plan.
+    func refreshAccess(childId: UUID? = nil) async {
+        guard let clubId else { return }
+        forbiddenCourtIds = await PlanningService.forbiddenCourts(clubId: clubId, for: childId)
     }
 
     // MARK: - Cycle de vie

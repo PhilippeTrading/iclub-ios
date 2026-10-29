@@ -26,7 +26,8 @@ struct CreateCourseView: View {
     private static let types: [ActivityType] = [.collectif, .stage, .individuel, .duo]
 
     private var sports: [Sport] { catalog.availableSports }
-    private var courts: [Court] { catalog.courts(for: draft.sport) }
+    /// Un cours n'est pas une réservation : tous les terrains actifs.
+    private var courts: [Court] { catalog.allCourts(for: draft.sport) }
 
     var body: some View {
         Form {
@@ -145,7 +146,7 @@ struct CreateCourseView: View {
         Section {
             ForEach(store.slots) { slot in
                 Button {
-                    draft.apply(slot, fallbackCourt: catalog.courts(for: slot.sport).first?.id)
+                    draft.apply(slot, fallbackCourt: catalog.allCourts(for: slot.sport).first?.id)
                     Haptics.selection()
                 } label: {
                     VStack(alignment: .leading, spacing: 3) {

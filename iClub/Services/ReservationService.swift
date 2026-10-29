@@ -23,9 +23,14 @@ enum ReservationError: LocalizedError, Equatable {
     /// Les participants n'ont pas pu être enregistrés ; la réservation a été
     /// annulée pour ne pas laisser de donnée incohérente.
     case participantsFailed
+    /// Refus de la base (P0001), à afficher tel quel : par exemple « Vous ne
+    /// pouvez pas réserver ce terrain. Pour en savoir plus, contactez le club. »
+    case refused(String)
 
     var errorDescription: String? {
         switch self {
+        case .refused(let message):
+            message
         case .slotAlreadyTaken:
             "Ce créneau vient d'être réservé par quelqu'un d'autre — choisissez-en un autre."
         case .participantsFailed:
@@ -66,6 +71,11 @@ enum ReservationService {
             try await insertParticipants(reservationId: reservationId, participants: participants)
         } catch {
             await rollback(reservationId: reservationId)
+            // Un joueur refusé par la base (terrain fermé à un enfant, par
+            // exemple) : son message, tel quel.
+            if let postgrest = error as? PostgrestError, postgrest.code == "P0001" {
+                throw ReservationError.refused(postgrest.message)
+            }
             throw ReservationError.participantsFailed
         }
 
@@ -212,6 +222,9 @@ enum ReservationService {
     private static func translate(_ error: any Error) -> any Error {
         if let postgrest = error as? PostgrestError, postgrest.code == uniqueViolation {
             return ReservationError.slotAlreadyTaken
+        }
+        if let postgrest = error as? PostgrestError, postgrest.code == "P0001" {
+            return ReservationError.refused(postgrest.message)
         }
 
         // Selon la configuration de PostgREST, la violation arrive parfois sans

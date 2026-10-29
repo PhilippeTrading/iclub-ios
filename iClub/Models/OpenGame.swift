@@ -123,6 +123,7 @@ nonisolated struct OpenGameRow: Decodable, Sendable {
     let niveauMin: String?
     let niveauMax: String?
     let createdBy: UUID?
+    let courtId: UUID?
     let court: CourtBrief?
     let participants: [ParticipantRow]
 
@@ -159,13 +160,14 @@ nonisolated struct OpenGameRow: Decodable, Sendable {
         case niveauMin = "niveau_min"
         case niveauMax = "niveau_max"
         case createdBy = "created_by"
+        case courtId = "court_id"
         case court = "courts"
         case participants = "reservation_participants"
     }
 
     static let columns = """
         id, date, heure_debut, heure_fin, statut, format, mixite, ambiance, \
-        niveau_min, niveau_max, created_by, est_partie_ouverte, \
+        niveau_min, niveau_max, created_by, est_partie_ouverte, court_id, \
         courts(nom, surface, couvert, sport, duree_creneau_minutes), \
         reservation_participants(profile_id, nom_affiche, equipe, cote)
         """
@@ -196,6 +198,7 @@ nonisolated struct OpenGameRow: Decodable, Sendable {
             niveauMax: niveauMax,
             hostId: createdBy,
             isCancelled: statut == ReservationInsert.cancelledStatus,
+            courtId: courtId,
             players: participants.compactMap { row in
                 guard let profileId = row.profileId else { return nil }
                 return OpenGame.Player(
@@ -247,6 +250,9 @@ nonisolated struct OpenGame: Identifiable, Hashable, Sendable {
     let niveauMax: String?
     let hostId: UUID?
     let isCancelled: Bool
+    /// Terrain de la partie : sert à écarter celles qui se jouent sur un
+    /// terrain fermé à la personne.
+    var courtId: UUID? = nil
     let players: [Player]
 
     // MARK: Places

@@ -18,6 +18,7 @@ struct BookingSummaryView: View {
     let draft: BookingDraft
 
     @Environment(AuthController.self) private var auth
+    @Environment(ClubCatalog.self) private var catalog
     @Environment(AppRouter.self) private var router
 
     @State private var isConfirming = false
@@ -280,6 +281,18 @@ struct BookingSummaryView: View {
         errorMessage = nil
 
         Task {
+            // Réservation au nom d'un enfant : on vérifie ses terrains à lui
+            // avant d'envoyer quoi que ce soit.
+            if auth.isActingForChild, let child = auth.activeProfile {
+                let closed = await PlanningService.forbiddenCourts(clubId: profile.clubId, for: child.id)
+                if closed.contains(court.id) {
+                    errorMessage = "\(child.prenom ?? child.displayName) ne peut pas réserver ce terrain. Pour en savoir plus, contacte le club."
+                    Haptics.warning()
+                    isConfirming = false
+                    return
+                }
+            }
+
             do {
                 let reservationId = try await ReservationService.confirm(
                     clubId: profile.clubId,
@@ -323,6 +336,11 @@ struct BookingSummaryView: View {
                 isConfirming = false
                 Haptics.failure()
                 errorMessage = error.localizedDescription
+                // Terrain fermé entre-temps : on relit les fermetures, il
+                // disparaîtra du planning.
+                if case ReservationError.refused = error {
+                    await catalog.refreshAccess(childId: auth.isActingForChild ? auth.activeProfile?.id : nil)
+                }
             }
         }
     }

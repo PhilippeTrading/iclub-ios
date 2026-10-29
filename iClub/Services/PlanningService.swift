@@ -75,4 +75,40 @@ enum PlanningService {
 
         return rows.compactValues()
     }
+
+    // MARK: - Terrains fermés
+
+    private nonisolated struct ForbiddenCourtRow: Decodable, Sendable {
+        let courtId: UUID
+        enum CodingKeys: String, CodingKey { case courtId = "court_id" }
+    }
+
+    private nonisolated struct ForbiddenParams: Encodable, Sendable {
+        let clubId: UUID
+        let profileId: UUID?
+        enum CodingKeys: String, CodingKey {
+            case clubId = "p_club_id"
+            case profileId = "p_profile_id"
+        }
+    }
+
+    /// Terrains que l'utilisateur connecté — ou l'enfant donné — ne peut pas
+    /// réserver. Seule source : `terrains_interdits` ; la table des fermetures
+    /// n'est pas lisible par un adhérent.
+    ///
+    /// En cas d'échec (réseau, fonction pas encore déployée), on ne cache rien :
+    /// la base refusera une réservation interdite avec un message clair.
+    static func forbiddenCourts(clubId: UUID, for childId: UUID? = nil) async -> Set<UUID> {
+        do {
+            // Sans enfant, le paramètre est omis : la base choisit alors la
+            // version à un argument, pour l'utilisateur connecté.
+            let rows: [ForbiddenCourtRow] = try await Supa.client
+                .rpc("terrains_interdits", params: ForbiddenParams(clubId: clubId, profileId: childId))
+                .execute()
+                .value
+            return Set(rows.map(\.courtId))
+        } catch {
+            return []
+        }
+    }
 }

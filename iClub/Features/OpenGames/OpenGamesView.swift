@@ -47,17 +47,29 @@ struct OpenGamesView: View {
     /// qu'il déclenche — sinon la sélection passerait par tous les jours
     /// intermédiaires.
     @State private var pendingDay: Date?
+    /// Le défilement vers `pendingDay` a déjà été recalé une fois.
+    @State private var didAdjustPendingDay = false
     /// Hauteurs utiles pour que la dernière section puisse remonter jusqu'en
     /// haut : sans cela, toucher le dernier jour ne l'amènerait pas sous la
     /// bande, et la sélection retomberait sur la veille.
     @State private var viewportHeight: CGFloat = 0
+    /// Hauteur totale de la zone de défilement, barres comprises : c'est le
+    /// repère des ancres de `scrollTo`.
+    @State private var containerHeight: CGFloat = 0
     @State private var lastSectionHeight: CGFloat = 0
     /// Cartes dépliées. Toutes repliées par défaut : la liste se parcourt
     /// d'un coup d'œil.
     @State private var expandedGames: Set<UUID> = []
 
+    /// Parties ouvertes, sans celles qui se jouent sur un terrain fermé à la
+    /// personne — sauf si elle ou l'un de ses enfants y joue déjà : il doit
+    /// pouvoir la retrouver et la quitter.
     private var visibleGames: [OpenGame] {
-        store.openForJoining(sport: sportFilter)
+        let mine = Set([auth.sessionProfile?.id].compactMap { $0} + auth.managedChildren.map(\.profileId))
+        return store.openForJoining(sport: sportFilter).filter { game in
+            guard let courtId = game.courtId, catalog.isForbidden(courtId) else { return true }
+            return game.players.contains { mine.contains($0.profileId) }
+        }
     }
 
     /// Parties regroupées par jour, dans l'ordre chronologique.
@@ -92,10 +104,30 @@ struct OpenGamesView: View {
             } action: { _, height in
                 viewportHeight = height
             }
+            .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, height in
+                containerHeight = height
+            }
             .onScrollPhaseChange { _, phase in
-                // Fin du défilement déclenché par la bande, ou reprise en
-                // main : la position réelle reprend la main.
-                if phase == .idle || phase == .interacting { pendingDay = nil }
+                switch phase {
+                case .interacting:
+                    // Reprise en main : la position réelle reprend la main.
+                    pendingDay = nil
+                case .idle:
+                    // Au premier saut depuis le haut, le grand titre se replie
+                    // pendant le défilement et la bande remonte : on recale
+                    // une fois, avec sa position définitive, pour que
+                    // l'étiquette du jour tombe pile sous la bande.
+                    if let day = pendingDay, !didAdjustPendingDay {
+                        didAdjustPendingDay = true
+                        withAnimation(.smooth(duration: 0.2)) {
+                            proxy.scrollTo(DayAnchor(day: day), anchor: dayAnchorPoint)
+                        }
+                    } else {
+                        pendingDay = nil
+                    }
+                default:
+                    break
+                }
             }
             // Un autre sport n'a pas forcément de partie le jour affiché : on
             // repart du premier jour.
@@ -103,7 +135,7 @@ struct OpenGamesView: View {
                 sectionTops = [:]
                 pendingDay = nil
                 if let first = daySections.first?.day {
-                    proxy.scrollTo(DayAnchor(day: first), anchor: .top)
+                    proxy.scrollTo(DayAnchor(day: first), anchor: dayAnchorPoint)
                 }
             }
         }
@@ -141,7 +173,12 @@ struct OpenGamesView: View {
             guard let clubId = profile?.clubId else { return }
             await store.activate(clubId: clubId)
         }
-        .refreshable { await store.reload() }
+        // Terrains fermés relus à chaque affichage de la liste.
+        .task { await refreshCourtAccess() }
+        .refreshable {
+            await refreshCourtAccess()
+            await store.reload()
+        }
         .sheet(item: $selectedPlayer) { player in
             PlayerProfileSheet(player: player, info: store.roster[player.profileId])
         }
@@ -252,17 +289,30 @@ struct OpenGamesView: View {
             get: { currentDay(sections) ?? Calendar.current.startOfDay(for: .now) },
             set: { day in
                 pendingDay = day
+                didAdjustPendingDay = false
                 withAnimation(.smooth(duration: 0.35)) {
-                    proxy.scrollTo(DayAnchor(day: day), anchor: .top)
+                    proxy.scrollTo(DayAnchor(day: day), anchor: dayAnchorPoint)
                 }
             }
         )
     }
 
+    /// Où poser le début d'une journée : juste sous la bande de jours épinglée,
+    /// avec un peu d'air, pour que son étiquette et ses premières parties
+    /// soient visibles en entier. Exprimé en fraction de la hauteur de la zone
+    /// de défilement, comme l'attend `scrollTo`.
+    private var dayAnchorPoint: UnitPoint {
+        guard containerHeight > 0 else { return .top }
+        let y = min(max((headerBottom + 10) / containerHeight, 0), 1)
+        return UnitPoint(x: 0.5, y: y)
+    }
+
     /// Dernière journée dont le haut est passé sous l'en-tête figé.
     private func currentDay(_ sections: [DaySection]) -> Date? {
         if let pendingDay { return pendingDay }
-        let threshold = headerBottom + 8
+        // Un peu de marge : la journée posée par la bande arrive à 10 points
+        // sous l'en-tête, et doit compter comme affichée.
+        let threshold = headerBottom + 16
         return sections.last { (sectionTops[$0.day] ?? .infinity) <= threshold }?.day
             ?? sections.first?.day
     }
@@ -354,13 +404,11 @@ struct OpenGamesView: View {
                 }
             }
         }
-        // Cible du défilement, posée juste au-dessus de la journée et haute
-        // comme l'en-tête : amenée en haut, elle laisse la journée apparaître
-        // pile sous l'en-tête épinglé, au lieu de passer dessous.
-        .overlay(alignment: .top) {
+        // Cible du défilement : un point au tout début de la journée, juste
+        // au-dessus de son étiquette « Samedi 31 octobre ».
+        .background(alignment: .top) {
             Color.clear
-                .frame(height: headerHeight + 8)
-                .alignmentGuide(.top) { $0[.bottom] }
+                .frame(height: 1)
                 .id(DayAnchor(day: section.day))
                 .allowsHitTesting(false)
         }
@@ -541,10 +589,17 @@ struct OpenGamesView: View {
                 // celui de la concurrence, et son message est déjà rédigé.
                 joinError = error.localizedDescription
                 Haptics.failure()
+                // Refus sur un terrain fermé : on relit les fermetures pour que
+                // la partie disparaisse de la liste.
+                await refreshCourtAccess()
                 await store.reload()
             }
             isJoining = false
         }
+    }
+
+    private func refreshCourtAccess() async {
+        await catalog.refreshAccess(childId: auth.isActingForChild ? profile?.id : nil)
     }
 
     // MARK: - Quitter / Annuler

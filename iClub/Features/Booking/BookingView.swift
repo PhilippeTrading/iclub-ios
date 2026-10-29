@@ -97,7 +97,11 @@ struct BookingView: View {
             guard let clubId = auth.sessionProfile?.clubId else { return }
             await availability.activate(clubId: clubId, date: selectedDay)
         }
+        // Les terrains fermés se relisent à chaque affichage du planning : le
+        // club peut changer ce réglage à tout moment, sans temps réel.
+        .task { await refreshCourtAccess() }
         .refreshable {
+            await refreshCourtAccess()
             await catalog.reload()
             await availability.reload()
         }
@@ -192,7 +196,11 @@ struct BookingView: View {
         let surface = resolvedSurface(for: sport)
         let rows = openSlots(for: sport, surface: surface)
 
-        if case .failed(let message) = availability.phase {
+        // Tous les terrains du sport sont fermés à cette personne : on garde le
+        // sport, sans dire pourquoi, avec le texte du web.
+        if catalog.courts(for: sport).isEmpty {
+            noCourtState(sport)
+        } else if case .failed(let message) = availability.phase {
             errorState(message) { await availability.reload() }
         } else if rows.isEmpty, availability.phase != .ready {
             slotSkeletons
@@ -213,6 +221,18 @@ struct BookingView: View {
                 }
             }
         }
+    }
+
+    private func noCourtState(_ sport: Sport) -> some View {
+        Text("Aucun terrain de \(sport.displayName.lowercased()) à réserver.")
+            .font(.subheadline)
+            .foregroundStyle(Brand.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 32)
+    }
+
+    private func refreshCourtAccess() async {
+        await catalog.refreshAccess(childId: auth.isActingForChild ? auth.activeProfile?.id : nil)
     }
 
     /// Créneaux ayant au moins un terrain libre après filtre de surface, avec

@@ -2,40 +2,80 @@
 //  ProfileView.swift
 //  iClub
 //
-//  Même contenu que le profil web (/member/profil), dans la direction
-//  artistique de l'app : identité et adhésion, informations personnelles,
-//  adhésion, classements, famille, pièces, reçus, notifications, autres
-//  espaces, déconnexion et suppression du compte.
+//  Rôle
+//    Même contenu que le profil web (/member/profil), dans la direction
+//    artistique de l'app : identité et adhésion, informations personnelles,
+//    adhésion, classements, famille, pièces, reçus, notifications, autres
+//    espaces, déconnexion et suppression du compte.
+//
+//  Place dans l'application
+//    Racine de l'onglet « Profil » (MainTabView). Les cartes sont des vues
+//    séparées : PersonalInfoSection, MembershipSection et ReceiptsSection
+//    (ProfileCards.swift), RankingsSection, FamilySection, DocumentsSection,
+//    GameNotificationsSection, OtherSpacesRow. La suppression du compte passe
+//    par DeleteAccountSheet. Ce fichier contient aussi AvatarView, la photo
+//    ronde avec repli sur les initiales, utilisée dans toute l'app.
+//
+//  Données
+//    Le profil de session (`AuthController.sessionProfile` : profils,
+//    membre du club, adhésion active) et ProfileExtrasStore (enfants, pièces,
+//    reçus, sous-domaine du club).
+//
+//  Compte d'un enfant
+//    Quand le parent agit pour un enfant (sélecteur de compte en haut),
+//    l'onglet n'affiche que la fiche de l'enfant et le retour à son propre
+//    compte : informations, déconnexion et suppression restent celles du
+//    parent.
+//
+//  Effets de bord
+//    Photo de profil envoyée ou retirée (AvatarService, stockage Supabase et
+//    `profiles.avatar_url`), déconnexion, suppression du compte (fonction SQL
+//    `delete_my_account`, par AuthService), remise à zéro de la navigation.
 //
 
 import PhotosUI
 import SwiftUI
 
+/// Écran de l'onglet « Profil ».
 struct ProfileView: View {
+    /// Session : profil, compte d'enfant actif, déconnexion.
     @Environment(AuthController.self) private var auth
+    /// Routeur, remis à zéro après la suppression du compte.
     @Environment(AppRouter.self) private var router
 
+    /// Déconnexion en cours.
     @State private var isSigningOut = false
+    /// Fenêtre de confirmation de la déconnexion ouverte.
     @State private var showSignOutConfirmation = false
 
+    /// Feuille de suppression du compte ouverte.
     @State private var showDeleteConfirmation = false
+    /// Suppression du compte en cours.
     @State private var isDeletingAccount = false
+    /// Message de l'alerte « Suppression impossible ».
     @State private var deleteError: String?
 
     /// Photo choisie dans la bibliothèque, en attente d'envoi.
     @State private var pickedPhoto: PhotosPickerItem?
+    /// Sélecteur de photos du système ouvert.
     @State private var showsPhotoLibrary = false
+    /// Envoi ou retrait de la photo en cours.
     @State private var isUploadingPhoto = false
+    /// Message de l'alerte « Photo non enregistrée ».
     @State private var photoError: String?
 
     /// Enfants, pièces, reçus : ce que l'écran lit en plus du profil de session.
     @State private var extras = ProfileExtrasStore()
 
+    /// Le compte connecté (toujours le parent, même s'il agit pour un enfant).
     private var profile: SessionProfile? { auth.sessionProfile }
 
+    /// La fiche de l'enfant ou le contenu du compte, avec les fenêtres de
+    /// confirmation, d'alerte et le sélecteur de photos.
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // Compte d'un enfant sélectionné : sa fiche seulement.
                 if auth.isActingForChild, let profile, let child = actingChild {
                     childPane(child, parent: profile)
                 } else {
@@ -45,16 +85,22 @@ struct ProfileView: View {
             .padding(.top, 12)
         }
         .background(Brand.background.ignoresSafeArea())
+        // Titre : prénom de l'enfant quand on agit pour lui.
         .navigationTitle(auth.isActingForChild ? (actingChild?.prenom ?? "Profil") : "Profil")
+        // Données complémentaires, chargées pour le compte connecté.
         .task(id: profile?.id) {
             guard let profile else { return }
             await extras.load(profile: profile)
         }
+        // « Tirer pour rafraîchir » : profil de session puis données
+        // complémentaires.
         .refreshable {
             await auth.refreshSessionProfile()
             if let profile { await extras.load(profile: profile) }
         }
+        // Sélecteur de photos du système, ouvert par le menu de l'avatar.
         .photosPicker(isPresented: $showsPhotoLibrary, selection: $pickedPhoto, matching: .images, photoLibrary: .shared())
+        // Confirmation de la déconnexion.
         .confirmationDialog(
             "Se déconnecter de iClub ?",
             isPresented: $showSignOutConfirmation,
@@ -68,11 +114,13 @@ struct ProfileView: View {
         .sheet(isPresented: $showDeleteConfirmation) {
             DeleteAccountSheet(isDeleting: isDeletingAccount) { deleteAccount() }
         }
+        // Refus (seul administrateur du club, fonction absente) ou échec.
         .alert("Suppression impossible", isPresented: deleteErrorBinding) {
             Button("OK") { deleteError = nil }
         } message: {
             Text(deleteError ?? "")
         }
+        // Échec de l'envoi ou du retrait de la photo.
         .alert("Photo non enregistrée", isPresented: photoErrorBinding) {
             Button("OK") { photoError = nil }
         } message: {
@@ -94,12 +142,19 @@ struct ProfileView: View {
     /// Onglet Profil en compte enfant : sa fiche, et le retour à son compte.
     /// Le compte lui-même (informations, déconnexion, suppression) reste celui
     /// du parent, accessible en revenant à son compte.
+    /// - Parameters:
+    ///   - child: l'enfant sélectionné.
+    ///   - parent: le compte connecté.
+    /// - Returns: le bandeau d'information, la fiche de l'enfant et le bouton
+    ///   de retour.
     private func childPane(_ child: ManagedProfile, parent: SessionProfile) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             InlineMessage(kind: .info, message: "Vous gérez le compte de \(child.prenom ?? child.displayName). Réservations, parties, cours et événements se font à son nom.")
+            // Retirer l'enfant de la famille ramène aussi au compte du parent.
             ChildProfileContent(child: child, profile: parent, store: extras) {
                 auth.act(for: nil)
             }
+            // Retour au compte du parent : tous les onglets repassent à son nom.
             Button {
                 Haptics.selection()
                 auth.act(for: nil)
@@ -114,10 +169,14 @@ struct ProfileView: View {
         .padding(.horizontal, 20)
     }
 
+    /// Le compte du membre, carte par carte, dans l'ordre du profil web ; puis
+    /// déconnexion et suppression.
     @ViewBuilder
     private var accountContent: some View {
         identityCard
 
+        // Les cartes ont besoin du profil chargé ; les écritures (informations,
+        // classements) relisent ensuite le profil de session.
         if let profile {
             PersonalInfoSection(profile: profile) {
                 await auth.refreshSessionProfile()
@@ -159,6 +218,8 @@ struct ProfileView: View {
 
     // MARK: - Identité
 
+    /// Carte d'identité : photo modifiable, nom, courriel, club et pastille
+    /// d'adhésion ; squelettes tant que le profil n'est pas chargé.
     @ViewBuilder
     private var identityCard: some View {
         if let profile {
@@ -191,6 +252,7 @@ struct ProfileView: View {
             }
             .padding(.horizontal, 20)
         } else {
+            // Profil pas encore chargé : deux lignes de squelette.
             SurfaceCard {
                 VStack(alignment: .leading, spacing: 10) {
                     SkeletonBlock(height: 20)
@@ -206,6 +268,9 @@ struct ProfileView: View {
     /// Avatar tapable : « Changer la photo », et « Retirer la photo » quand il y
     /// en a une. La bibliothèque passe par le sélecteur système, hors du
     /// processus de l'app : aucune autorisation à demander.
+    /// - Parameter profile: le compte connecté.
+    /// - Returns: le menu, dont l'étiquette est la photo de 60 points avec un
+    ///   badge appareil photo, ou un voile et un indicateur pendant l'envoi.
     private func editablePhoto(_ profile: SessionProfile) -> some View {
         Menu {
             Button("Changer la photo", systemImage: "photo.on.rectangle") {
@@ -218,6 +283,7 @@ struct ProfileView: View {
             }
         } label: {
             AvatarView(url: profile.avatarUrl, initials: profile.initials, size: 60)
+                // Pendant l'envoi : voile sombre et indicateur d'activité.
                 .overlay {
                     if isUploadingPhoto {
                         ZStack {
@@ -226,6 +292,7 @@ struct ProfileView: View {
                         }
                     }
                 }
+                // Au repos : petit badge appareil photo en bas à droite.
                 .overlay(alignment: .bottomTrailing) {
                     if !isUploadingPhoto {
                         Image(systemName: "camera.fill")
@@ -245,6 +312,9 @@ struct ProfileView: View {
         .accessibilityLabel("Photo de profil")
     }
 
+    /// Retire la photo (AvatarService : fichier du stockage et
+    /// `profiles.avatar_url`), puis relit le profil de session pour que les
+    /// initiales reprennent sa place partout.
     private func removePhoto() {
         guard let profileId = profile?.id else { return }
         isUploadingPhoto = true
@@ -262,6 +332,8 @@ struct ProfileView: View {
         }
     }
 
+    /// Ouvre l'alerte de photo tant qu'une erreur est posée ; la fermer
+    /// l'efface.
     private var photoErrorBinding: Binding<Bool> {
         Binding(
             get: { photoError != nil },
@@ -269,6 +341,9 @@ struct ProfileView: View {
         )
     }
 
+    /// Lit la photo choisie et l'envoie (AvatarService la recadre en carré et
+    /// l'écrit dans le stockage), puis relit le profil de session.
+    /// - Parameter item: la photo choisie dans le sélecteur du système.
     private func uploadPhoto(_ item: PhotosPickerItem) {
         guard let profileId = profile?.id else { return }
         isUploadingPhoto = true
@@ -295,6 +370,8 @@ struct ProfileView: View {
 
     // MARK: - Déconnexion
 
+    /// Bouton en verre teinté de rouge « Se déconnecter », qui ouvre la
+    /// confirmation ; indicateur d'activité pendant la déconnexion.
     private var signOutButton: some View {
         Button {
             showSignOutConfirmation = true
@@ -345,10 +422,23 @@ struct ProfileView: View {
         .disabled(isDeletingAccount || isSigningOut)
     }
 
+    /// Ouvre l'alerte de suppression tant qu'une erreur est posée.
     private var deleteErrorBinding: Binding<Bool> {
         Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
     }
 
+    /// Supprime le compte, après la double confirmation de DeleteAccountSheet.
+    ///
+    /// AuthService.deleteMyAccount efface d'abord les fichiers de photo, retire
+    /// l'appareil des notifications et les rappels programmés, puis appelle la
+    /// fonction SQL `delete_my_account`, qui anonymise le profil, annule les
+    /// réservations à venir créées par le membre, le retire des parties à
+    /// venir, et supprime son utilisateur d'authentification. Elle refuse si
+    /// le membre est le seul administrateur de son club.
+    ///
+    /// Attention : les fichiers de photo sont effacés avant l'appel ; si la
+    /// fonction refuse ensuite, le compte reste mais sa photo est perdue
+    /// (`avatar_url` pointe alors vers un fichier absent).
     private func deleteAccount() {
         guard let profileId = profile?.id else { return }
         isDeletingAccount = true
@@ -373,6 +463,10 @@ struct ProfileView: View {
         }
     }
 
+    /// Déconnexion après confirmation. AuthController (puis AuthService) oublie
+    /// l'appareil pour les notifications, retire les rappels programmés et vide
+    /// la messagerie avant de fermer la session ; RootView revient alors à
+    /// l'écran de connexion.
     private func signOut() {
         isSigningOut = true
         Haptics.destructive()
@@ -384,11 +478,19 @@ struct ProfileView: View {
 }
 
 /// Photo de profil avec repli sur les initiales.
+///
+/// Ronde, cerclée d'un filet discret, cachée à VoiceOver (le nom voisin suffit).
+/// Les initiales s'affichent sans adresse de photo, pendant son chargement et
+/// en cas d'échec.
 struct AvatarView: View {
+    /// Adresse de la photo, ou `nil`.
     let url: URL?
+    /// Initiales de repli.
     let initials: String
+    /// Diamètre en points (40 par défaut).
     var size: CGFloat = 40
 
+    /// La photo chargée, ou le disque d'initiales.
     var body: some View {
         Group {
             if let url {
@@ -412,6 +514,7 @@ struct AvatarView: View {
         .accessibilityHidden(true)
     }
 
+    /// Disque bleu marine pâle avec les initiales, à 38 % du diamètre.
     private var initialsCircle: some View {
         ZStack {
             Brand.navy700.opacity(0.12)
@@ -422,6 +525,7 @@ struct AvatarView: View {
     }
 }
 
+/// Aperçu Xcode, sans session (cartes en squelette).
 #Preview {
     NavigationStack { ProfileView() }
         .environment(AuthController())

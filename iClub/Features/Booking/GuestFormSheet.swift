@@ -7,26 +7,55 @@
 //  Les deux champs sont obligatoires, avec un message sur le champ vide plutôt
 //  qu'un bouton inerte sans explication.
 //
+//  Place dans l'application
+//    Feuille ouverte par le bouton « Invité » de l'écran des joueurs
+//    (`ParticipantsView`). Elle ne lit ni n'écrit rien en base : l'invité est
+//    ajouté au brouillon (`BookingDraft`), et n'est enregistré qu'à la
+//    confirmation, comme ligne `reservation_participants` de type « invite »
+//    sans profil.
+//
+//  Règles
+//    - Crédit invité : gratuit, possible seulement s'il reste des crédits sur
+//      la période d'adhésion du réservataire (panier en cours déduit).
+//    - Supplément : `BookingPricing.guestSupplement` (10 €), ajouté au total à
+//      régler.
+//    Ces règles ne sont appliquées que par l'app : la base ne contrôle ni le
+//    solde de crédits ni le montant du supplément.
+//
 
 import SwiftUI
 
+/// Formulaire d'un invité : identité et mode de prise en charge de sa part.
 struct GuestFormSheet: View {
     /// Crédits encore disponibles, panier en cours déduit.
     let creditsRemaining: Int
+    /// Appelé avec le prénom et le nom nettoyés (espaces de bord retirés) et le
+    /// mode de prise en charge choisi, juste avant la fermeture.
     let onAdd: (_ prenom: String, _ nom: String, _ payer: GuestPayer) -> Void
 
+    /// Fermeture de la feuille.
     @Environment(\.dismiss) private var dismiss
 
+    /// Prénom saisi.
     @State private var prenom = ""
+    /// Nom saisi.
     @State private var nom = ""
+    /// Prise en charge choisie ; réglée à l'ouverture selon les crédits.
     @State private var payer: GuestPayer = .supplement
+    /// Vrai après un premier appui sur « Ajouter » : les erreurs de saisie ne
+    /// s'affichent qu'à partir de là.
     @State private var hasSubmitted = false
 
+    /// Vrai s'il reste au moins un crédit invité.
     private var hasCredit: Bool { creditsRemaining > 0 }
 
+    /// Prénom sans espaces de début et de fin.
     private var trimmedPrenom: String { prenom.trimmingCharacters(in: .whitespaces) }
+    /// Nom sans espaces de début et de fin.
     private var trimmedNom: String { nom.trimmingCharacters(in: .whitespaces) }
 
+    /// Feuille avec sa barre de titre : identité, prise en charge, bouton
+    /// « Ajouter l'invité ».
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -34,6 +63,8 @@ struct GuestFormSheet: View {
                     identityFields
                     payerPicker
 
+                    // Toujours actif : un appui avec un champ vide affiche
+                    // l'erreur au lieu de laisser un bouton inerte.
                     PrimaryActionButton(title: "Ajouter l'invité", systemImage: "person.badge.plus") {
                         submit()
                     }
@@ -46,6 +77,7 @@ struct GuestFormSheet: View {
             .navigationTitle("Ajouter un invité")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Fermeture sans rien ajouter.
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") { dismiss() }
                 }
@@ -59,6 +91,7 @@ struct GuestFormSheet: View {
 
     // MARK: - Identité
 
+    /// Prénom et nom de l'invité, et le message d'erreur après un essai.
     private var identityFields: some View {
         VStack(alignment: .leading, spacing: 8) {
             GlassFieldGroup {
@@ -67,12 +100,14 @@ struct GuestFormSheet: View {
                 AuthField(kind: .lastName, systemImage: "textformat", placeholder: "Nom", text: $nom)
             }
 
+            // Erreur de saisie, seulement après un appui sur « Ajouter ».
             if hasSubmitted, let message = validationMessage {
                 InlineMessage(kind: .error, message: message)
             }
         }
     }
 
+    /// Message adapté au champ manquant, ou `nil` si la saisie est complète.
     private var validationMessage: String? {
         if trimmedPrenom.isEmpty, trimmedNom.isEmpty { return "Renseigne le prénom et le nom de l'invité." }
         if trimmedPrenom.isEmpty { return "Le prénom de l'invité est obligatoire." }
@@ -82,12 +117,15 @@ struct GuestFormSheet: View {
 
     // MARK: - Qui paie
 
+    /// Les deux prises en charge possibles : crédit invité (grisé s'il n'en
+    /// reste pas) ou supplément.
     private var payerPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Qui paie l'invité ?")
                 .metaLabelStyle()
 
             VStack(spacing: 8) {
+                // « Gratuit · 2 restants », ou « Crédit invité épuisé ».
                 payerOption(
                     .credit,
                     title: "Crédit invité",
@@ -98,6 +136,7 @@ struct GuestFormSheet: View {
                     isEnabled: hasCredit
                 )
 
+                // « 10,00 € à régler », toujours possible.
                 payerOption(
                     .supplement,
                     title: "Payer le supplément",
@@ -109,6 +148,15 @@ struct GuestFormSheet: View {
         }
     }
 
+    /// Une option de prise en charge, présentée comme un bouton radio.
+    ///
+    /// - Parameters:
+    ///   - value: prise en charge choisie par l'option.
+    ///   - title: intitulé de l'option.
+    ///   - detail: précision sous l'intitulé (gratuit, montant, épuisé).
+    ///   - systemImage: pictogramme de l'option.
+    ///   - isEnabled: faux pour une option impossible, grisée et inactive.
+    /// - Returns: le bouton de l'option.
     private func payerOption(
         _ value: GuestPayer,
         title: String,
@@ -132,6 +180,7 @@ struct GuestFormSheet: View {
                     Text(title)
                         .font(.system(.body, design: .rounded, weight: .semibold))
                         .foregroundStyle(isEnabled ? Brand.textPrimary : Brand.textSecondary)
+                    // Le détail passe en orange quand l'option est impossible.
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(isEnabled ? Brand.textSecondary : Brand.warning)
@@ -139,6 +188,7 @@ struct GuestFormSheet: View {
 
                 Spacer(minLength: 0)
 
+                // Rond plein pour l'option choisie.
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 19))
                     .foregroundStyle(isSelected ? Brand.navy700 : Brand.hairline)
@@ -155,6 +205,9 @@ struct GuestFormSheet: View {
 
     // MARK: - Validation
 
+    /// Valide la saisie ; si elle est complète, transmet l'invité au brouillon
+    /// et ferme la feuille, sinon affiche l'erreur avec une vibration
+    /// d'avertissement.
     private func submit() {
         hasSubmitted = true
         guard validationMessage == nil else {

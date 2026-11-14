@@ -2,15 +2,36 @@
 //  Sport.swift
 //  iClub
 //
+//  Rôle
+//    Les trois sports gérés par iClub, avec leur nom affiché, leur pictogramme
+//    et leurs couleurs.
+//
+//  Place dans l'application
+//    Partout : terrains (`courts.sport`), réglages horaires
+//    (`club_sport_settings.sport`), cours (`activites.sport`), créneaux
+//    d'entraîneur, formules d'adhésion (`membership_formulas.sports_inclus`).
+//    Les colonnes SQL acceptent les mêmes trois valeurs (contraintes `check`).
+//
+//  Points d'attention
+//    Les valeurs brutes (`rawValue`) sont celles écrites en base : les renommer
+//    casserait le décodage de toutes les tables.
+//
 
 import SwiftUI
 
 /// Valeurs alignées sur la colonne `courts.sport` côté Supabase.
+///
+/// L'ordre des cas (`allCases`) est l'ordre d'affichage des sports dans l'app,
+/// le même que sur le web.
 enum Sport: String, CaseIterable, Codable, Identifiable, Sendable {
+    /// `tennis`.
     case tennis
+    /// `padel`.
     case padel
+    /// `pickleball`.
     case pickleball
 
+    /// Identifiant stable pour les listes SwiftUI : la valeur brute.
     var id: String { rawValue }
 
     /// `nonisolated` : du texte pur, utilisé par les moteurs de règles qui
@@ -33,7 +54,7 @@ enum Sport: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
-    /// Accent principal du sport.
+    /// Accent principal du sport (couleurs de la charte, `Brand`).
     var accent: Color {
         switch self {
         case .tennis: Brand.clay800

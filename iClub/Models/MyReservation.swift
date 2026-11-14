@@ -8,41 +8,77 @@
 //  participant : un membre ajouté par quelqu'un d'autre doit retrouver la
 //  partie chez lui. Le bouton d'annulation, lui, ne dépend que de `created_by`.
 //
+//  Place dans l'application
+//    Lu par `ReservationService.loadMine` (deux requêtes : mes participations,
+//    puis les réservations), affiché par l'historique des réservations, le
+//    détail d'une réservation, la carte « prochaine réservation » de l'accueil,
+//    et utilisé pour programmer les rappels locaux (`BookingReminders`).
+//
+//  Droits et sécurité
+//    Tout membre du club lit les réservations du club et leurs participants
+//    (RLS `reservations_select_club`, `reservation_participants_select`) : le
+//    filtre « les miennes » est fait par la requête, pas par la base.
+//
 
 import Foundation
 
 // MARK: - DTO
 
+/// Ligne de `reservations` avec son terrain et ses participants, tels que les
+/// renvoie PostgREST grâce aux jointures déclarées dans `columns`.
 nonisolated struct MyReservationRow: Decodable, Sendable {
+    /// `id`.
     let id: UUID
+    /// `date` (`date`), en texte.
     let date: String?
+    /// `heure_debut` (`time`), en texte.
     let heureDebut: String?
+    /// `heure_fin` (`time`), en texte.
     let heureFin: String?
+    /// `statut` : `confirmee` ou `annulee`.
     let statut: String?
+    /// `statut_paiement` : `inclus`, `a_regler`, `regle` ou `rembourse` dans le
+    /// schéma actuel.
     let statutPaiement: String?
+    /// `created_by` : profil qui a créé la réservation.
     let createdBy: UUID?
+    /// `format` : `simple` ou `double`.
     let format: String?
+    /// `est_partie_ouverte` : la réservation est une partie ouverte.
     let estPartieOuverte: Bool?
+    /// Terrain joint (`courts(…)`), `nil` si la jointure n'a rien rendu.
     let court: CourtBrief?
+    /// Participants joints (`reservation_participants(…)`).
     let participants: [ParticipantBrief]
 
+    /// Colonnes du terrain joint.
     nonisolated struct CourtBrief: Decodable, Sendable {
+        /// `courts.nom`.
         let nom: String?
+        /// `courts.surface`.
         let surface: String?
+        /// `courts.couvert`.
         let couvert: Bool?
+        /// `courts.sport`, valeur brute.
         let sport: String?
     }
 
+    /// Colonnes d'un participant joint.
     nonisolated struct ParticipantBrief: Decodable, Sendable {
+        /// `profile_id`, `nil` pour un invité.
         let profileId: UUID?
+        /// `nom_affiche`.
         let nomAffiche: String?
 
+        /// Correspondance avec les colonnes SQL.
         enum CodingKeys: String, CodingKey {
             case profileId = "profile_id"
             case nomAffiche = "nom_affiche"
         }
     }
 
+    /// Correspondance avec les colonnes SQL ; les jointures portent le nom de
+    /// la table jointe (`courts`, `reservation_participants`).
     enum CodingKeys: String, CodingKey {
         case id, date, statut, format
         case heureDebut = "heure_debut"
@@ -54,14 +90,21 @@ nonisolated struct MyReservationRow: Decodable, Sendable {
         case participants = "reservation_participants"
     }
 
+    /// Sélection PostgREST avec jointures (clé étrangère `court_id` vers
+    /// `courts`, et `reservation_participants.reservation_id`). `created_at` est
+    /// demandée mais non décodée.
     static let columns = """
         id, date, heure_debut, heure_fin, statut, statut_paiement, created_by, created_at, \
         format, est_partie_ouverte, \
         courts(nom, surface, couvert, sport), reservation_participants(profile_id, nom_affiche)
         """
 
-    /// `nil` si la ligne n'a ni date ni heure exploitables : elle est alors
-    /// écartée plutôt qu'affichée à moitié.
+    /// Conversion vers le type du domaine.
+    ///
+    /// - Parameter myProfileId: profil du membre connecté, pour savoir s'il est
+    ///   le créateur.
+    /// - Returns: `nil` si la ligne n'a ni date ni heure exploitables : elle est
+    ///   alors écartée plutôt qu'affichée à moitié.
     func toDomain(myProfileId: UUID) -> MyReservation? {
         guard let day = SupabaseDate.parse(date),
               let startMinutes = ClubSportSettingsRow.minutes(from: heureDebut)
@@ -80,6 +123,10 @@ nonisolated struct MyReservationRow: Decodable, Sendable {
             surface: court?.surface,
             isIndoor: court?.couvert ?? false,
             isCancelled: statut == ReservationInsert.cancelledStatus,
+            // Attention : `paye` n'existe plus dans le schéma actuel (la
+            // migration 20261021170000 l'a remplacé par `regle`, lignes
+            // existantes comprises) : `isPaid` est donc toujours faux, et le
+            // libellé « Payé » ne s'affiche plus.
             isPaid: statutPaiement == "paye",
             isOwner: createdBy == myProfileId,
             createdBy: createdBy,
@@ -97,26 +144,35 @@ nonisolated struct MyReservationRow: Decodable, Sendable {
 
 /// Réservations où je figure comme joueur, première requête du couple.
 nonisolated struct ParticipationRow: Decodable, Sendable {
+    /// `reservation_participants.reservation_id`.
     let reservationId: UUID
 
+    /// Correspondance avec la colonne SQL.
     enum CodingKeys: String, CodingKey {
         case reservationId = "reservation_id"
     }
 
+    /// Colonne demandée.
     static let columns = "reservation_id"
 }
 
 // MARK: - Domaine
 
+/// Une réservation du membre, prête à afficher.
 nonisolated struct MyReservation: Identifiable, Hashable, Sendable {
 
+    /// Un joueur de la réservation.
     nonisolated struct Participant: Identifiable, Hashable, Sendable {
         /// `nil` pour un invité non-membre : ni photo ni classement à afficher.
         let profileId: UUID?
+        /// Nom affiché (`nom_affiche`), « Participant » à défaut.
         let displayName: String
 
+        /// Identifiant de liste : le profil, ou le nom pour un invité (deux
+        /// invités homonymes dans une même réservation partageraient le même).
         var id: String { profileId?.uuidString ?? displayName }
 
+        /// Initiales des deux premiers mots du nom, « ? » à défaut.
         var initials: String {
             let parts = displayName.split(separator: " ").prefix(2)
             let value = parts.compactMap { $0.first.map(String.init) }.joined()
@@ -124,14 +180,23 @@ nonisolated struct MyReservation: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// `reservations.id`.
     let id: UUID
+    /// Jour de la réservation, à minuit local.
     let date: Date
+    /// Créneau (début et durée).
     let slot: TimeSlot
+    /// Sport du terrain, `nil` s'il est inconnu de l'app.
     let sport: Sport?
+    /// Nom du terrain, « Terrain » à défaut.
     let courtName: String
+    /// Surface du terrain.
     let surface: String?
+    /// Terrain couvert.
     let isIndoor: Bool
+    /// Réservation annulée (`statut = 'annulee'`).
     let isCancelled: Bool
+    /// `statut_paiement = 'paye'` (voir l'avertissement dans `toDomain`).
     let isPaid: Bool
     /// `true` seulement si j'ai créé la réservation : un simple participant ne
     /// peut pas annuler la réservation d'un autre.
@@ -144,14 +209,17 @@ nonisolated struct MyReservation: Identifiable, Hashable, Sendable {
     let isOpenGame: Bool
     /// Nécessaire pour savoir si une partie ouverte est complète.
     let format: GameFormat?
+    /// Joueurs inscrits.
     let participants: [Participant]
 
     /// Instant de début, pour trancher « à venir » / « passées ».
+    /// (Jour à minuit local plus l'heure de début.)
     var startsAt: Date {
         Calendar.current.date(byAdding: .minute, value: slot.startMinutes, to: Calendar.current.startOfDay(for: date))
             ?? date
     }
 
+    /// La réservation n'a pas encore commencé.
     var isUpcoming: Bool { startsAt >= .now }
 
     /// « Terre battue · Extérieur »
@@ -169,6 +237,8 @@ nonisolated struct MyReservation: Identifiable, Hashable, Sendable {
         return participants.count >= format.capacity
     }
 
+    /// Statut affiché sur la ligne, par ordre de priorité : annulée, partie
+    /// complète, payé, confirmée.
     var statusLabel: String {
         if isCancelled { return "Annulée" }
         if isFullOpenGame { return "Partie complète" }
@@ -182,11 +252,14 @@ nonisolated struct MyReservation: Identifiable, Hashable, Sendable {
         return isOwner ? "Annuler la partie" : "Quitter la partie"
     }
 
+    /// Titre de la fenêtre de confirmation de sortie.
     var leaveConfirmationTitle: String {
         guard isOpenGame else { return "Annuler cette réservation ?" }
         return isOwner ? "Annuler cette partie ?" : "Quitter cette partie ?"
     }
 
+    /// Message de la fenêtre de confirmation de sortie : ce qui va se passer
+    /// pour les autres joueurs.
     var leaveConfirmationMessage: String {
         if !isOpenGame {
             return "Le créneau redeviendra disponible pour les autres membres."

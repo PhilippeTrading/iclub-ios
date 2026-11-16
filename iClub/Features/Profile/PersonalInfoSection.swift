@@ -2,31 +2,64 @@
 //  PersonalInfoSection.swift
 //  iClub
 //
-//  Informations personnelles du membre : lecture, puis édition sur place.
+//  Rôle
+//    Informations personnelles du membre : lecture, puis édition sur place.
 //
-//  Le téléphone y est lisible et modifiable, avec exactement la même
-//  validation qu'à l'inscription — la règle vit dans `PhoneNumber`, elle n'est
-//  pas réécrite ici.
+//    Le téléphone y est lisible et modifiable, avec exactement la même
+//    validation qu'à l'inscription : la règle vit dans `PhoneNumber`, elle
+//    n'est pas réécrite ici.
+//
+//  Place dans l'application
+//    Carte de l'onglet Profil (ProfileView), pour le compte connecté
+//    uniquement (jamais pour un enfant).
+//
+//  Données et écriture
+//    Lecture : le profil de session. Écriture : ProfileService
+//    .updatePersonalInfo met à jour la ligne `profiles` du membre (prénom et
+//    nom sans blancs autour, téléphone normalisé, date de naissance, sexe en
+//    H ou F) ; la RLS ne laisse modifier que sa propre ligne, et une écriture
+//    qui ne touche aucune ligne est traitée comme un refus. L'adresse e-mail
+//    n'est pas modifiable ici.
+//
+//  Règles de saisie
+//    Prénom et nom non vides, téléphone valide (10 chiffres commençant par 0,
+//    ou « + » suivi de 8 à 15 chiffres), sexe choisi ; date de naissance entre
+//    110 et 4 ans avant aujourd'hui. Ces trois données (téléphone, date de
+//    naissance, sexe) sont celles qu'exige un profil complet
+//    (SessionProfile.isComplete).
 //
 
 import SwiftUI
 
+/// Carte « Informations personnelles », en lecture ou en édition.
 struct PersonalInfoSection: View {
+    /// Le compte connecté.
     let profile: SessionProfile
     /// Rechargement du profil de session après écriture.
     let onSaved: () async -> Void
 
+    /// Mode édition ouvert.
     @State private var isEditing = false
+    /// Prénom en cours d'édition.
     @State private var prenom = ""
+    /// Nom en cours d'édition.
     @State private var nom = ""
+    /// Téléphone en cours d'édition (tel que saisi, normalisé à l'envoi).
     @State private var telephone = ""
+    /// Date de naissance en cours d'édition.
     @State private var dateNaissance = Date.now
+    /// Sexe en cours d'édition ; `nil` tant qu'il n'est pas choisi.
     @State private var sexe: Sexe?
 
+    /// Le champ téléphone a été quitté une fois : l'erreur de format peut
+    /// s'afficher.
     @State private var hasLeftPhoneField = false
+    /// Enregistrement en cours.
     @State private var isSaving = false
+    /// Message d'échec de l'enregistrement.
     @State private var errorMessage: String?
 
+    /// Dates de naissance admises : de 110 ans à 4 ans avant aujourd'hui.
     private var birthDateRange: ClosedRange<Date> {
         let calendar = Calendar.current
         let oldest = calendar.date(byAdding: .year, value: -110, to: .now) ?? .distantPast
@@ -34,6 +67,8 @@ struct PersonalInfoSection: View {
         return oldest...youngest
     }
 
+    /// En-tête, puis la lecture ou le formulaire, avec une transition douce
+    /// entre les deux.
     var body: some View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -51,6 +86,7 @@ struct PersonalInfoSection: View {
 
     // MARK: - En-tête
 
+    /// Titre de la carte et bouton « Modifier » (masqué pendant l'édition).
     private var header: some View {
         HStack {
             Text("Informations personnelles")
@@ -69,6 +105,8 @@ struct PersonalInfoSection: View {
 
     // MARK: - Lecture
 
+    /// Les cinq lignes en lecture : nom, e-mail, téléphone, date de naissance,
+    /// sexe ; une valeur absente s'affiche en gris.
     private var readOnly: some View {
         VStack(spacing: 0) {
             row(systemImage: "person", label: "Nom", value: profile.displayName)
@@ -100,6 +138,13 @@ struct PersonalInfoSection: View {
         }
     }
 
+    /// Une ligne de lecture : icône, intitulé, valeur à droite.
+    /// - Parameters:
+    ///   - systemImage: symbole SF Symbols.
+    ///   - label: intitulé.
+    ///   - value: valeur affichée.
+    ///   - isMissing: valeur absente (affichée en gris).
+    /// - Returns: la ligne, lue d'un bloc par VoiceOver (« intitulé : valeur »).
     private func row(
         systemImage: String,
         label: String,
@@ -133,6 +178,8 @@ struct PersonalInfoSection: View {
 
     // MARK: - Édition
 
+    /// Le formulaire : prénom, nom, téléphone, date de naissance, sexe, puis
+    /// l'aide sur le téléphone, l'erreur éventuelle et les boutons.
     private var editor: some View {
         VStack(alignment: .leading, spacing: 12) {
             GlassFieldGroup {
@@ -140,6 +187,7 @@ struct PersonalInfoSection: View {
                 FieldDivider()
                 AuthField(kind: .lastName, systemImage: "person.text.rectangle", placeholder: "Nom", text: $nom)
                 FieldDivider()
+                // Le format n'est jugé qu'une fois le champ quitté.
                 AuthField(
                     kind: .phone,
                     systemImage: "phone",
@@ -170,6 +218,8 @@ struct PersonalInfoSection: View {
                 InlineMessage(kind: .error, message: errorMessage)
             }
 
+            // « Annuler » abandonne la saisie (rien n'est écrit) ;
+            // « Enregistrer », grisé tant que la saisie n'est pas valide.
             HStack(spacing: 10) {
                 Button("Annuler") { isEditing = false }
                     .buttonStyle(.glass)
@@ -196,6 +246,8 @@ struct PersonalInfoSection: View {
         }
     }
 
+    /// Choix du sexe en deux pastilles, « Femme » et « Homme » ; l'intitulé
+    /// reste gris tant que rien n'est choisi.
     private var sexePicker: some View {
         HStack(spacing: 8) {
             Text("Sexe")
@@ -231,6 +283,8 @@ struct PersonalInfoSection: View {
         }
     }
 
+    /// Aide sous le formulaire : le format attendu en gris, ou le message
+    /// d'erreur en rouge si le champ quitté contient un numéro invalide.
     private var phoneHint: some View {
         let isInvalid = hasLeftPhoneField && !PhoneNumber.isValid(telephone)
 
@@ -247,6 +301,8 @@ struct PersonalInfoSection: View {
 
     // MARK: - Enregistrement
 
+    /// Enregistrement permis : prénom et nom non vides, téléphone valide, sexe
+    /// choisi, aucun envoi en cours.
     private var canSave: Bool {
         !prenom.trimmingCharacters(in: .whitespaces).isEmpty
             && !nom.trimmingCharacters(in: .whitespaces).isEmpty
@@ -255,12 +311,14 @@ struct PersonalInfoSection: View {
             && !isSaving
     }
 
+    /// Ouvre l'édition, préremplie avec le profil actuel.
     private func beginEditing() {
         prenom = profile.prenom ?? ""
         nom = profile.nom
         // Le champ s'ouvre sur la version lisible ; c'est la version normalisée
         // qui repartira en base.
         telephone = profile.formattedTelephone ?? ""
+        // Date inconnue : le sélecteur part de 30 ans avant aujourd'hui.
         dateNaissance = profile.dateNaissance
             ?? Calendar.current.date(byAdding: .year, value: -30, to: .now)
             ?? .now
@@ -270,6 +328,8 @@ struct PersonalInfoSection: View {
         isEditing = true
     }
 
+    /// Écrit les informations, relit le profil de session, puis referme
+    /// l'édition ; en cas d'échec, le formulaire reste ouvert avec le message.
     private func save() {
         guard canSave, let sexe else { return }
         isSaving = true

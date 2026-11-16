@@ -2,38 +2,66 @@
 //  GameNotificationsSection.swift
 //  iClub
 //
-//  « Me proposer des parties sur mes créneaux habituels ».
+//  Rôle
+//    Carte « Notifications » du profil, avec deux réglages :
+//    - « Me proposer des parties sur mes créneaux habituels ». Écrit
+//      `profiles.notifications_parties`, distinct de l'autorisation système :
+//      couper ces propositions ne coupe pas les messages importants, comme
+//      l'annulation d'une partie où le membre est inscrit. Le serveur, qui
+//      choisit les destinataires des propositions, lit ce réglage ;
+//    - « Rappel avant mes réservations » : réglage de l'appareil seulement
+//      (UserDefaults, BookingReminders.isEnabled), qui programme ou retire les
+//      rappels locaux une heure avant chaque réservation.
 //
-//  Écrit `profiles.notifications_parties`, distinct de l'autorisation système :
-//  couper ces propositions ne coupe pas les messages importants, comme
-//  l'annulation d'une partie où le membre est inscrit.
+//  Place dans l'application
+//    Carte de l'onglet Profil (ProfileView), pour le compte connecté.
+//
+//  Autorisation du système
+//    Si l'utilisateur a refusé les notifications pour iClub dans les réglages
+//    de l'iPhone, les deux interrupteurs sont désactivés et un lien ouvre les
+//    Réglages. Si la question n'a jamais été posée, un bouton la pose : c'est
+//    un geste explicite du membre, donc le bon moment.
 //
 
 import SwiftUI
 import UIKit
 import UserNotifications
 
+/// Carte des réglages de notification.
 struct GameNotificationsSection: View {
+    /// Profil dont on lit et écrit `notifications_parties` (le compte connecté).
     let profileId: UUID
 
+    /// Retour au premier plan : l'autorisation a pu changer dans les Réglages.
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Valeur affichée du réglage des propositions de parties (vrai par
+    /// défaut, avant lecture).
     @State private var isOn = true
+    /// Réglage lu en base.
     @State private var isLoaded = false
+    /// Écriture du réglage en cours.
     @State private var isSaving = false
+    /// Échec de l'écriture.
     @State private var errorMessage: String?
+    /// Autorisation des notifications accordée à l'app par iOS.
     @State private var systemStatus: UNAuthorizationStatus = .notDetermined
+    /// Rappels de réservation activés sur cet appareil.
     @State private var remindersOn = BookingReminders.isEnabled
+    /// Session : profil pour reprogrammer les rappels.
     @Environment(AuthController.self) private var auth
 
+    /// L'utilisateur a refusé les notifications dans les réglages d'iOS.
     private var systemDenied: Bool { systemStatus == .denied }
 
+    /// Les deux interrupteurs, l'état de l'autorisation et l'erreur éventuelle.
     var body: some View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Notifications")
                     .metaLabelStyle()
 
+                // Propositions de parties (réglage du compte, en base).
                 Toggle(isOn: preferenceBinding) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Me proposer des parties sur mes créneaux habituels")
@@ -51,6 +79,7 @@ struct GameNotificationsSection: View {
 
                 Divider().opacity(0.4)
 
+                // Rappels de réservation (réglage de l'appareil).
                 Toggle(isOn: remindersBinding) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Rappel avant mes réservations")
@@ -64,6 +93,8 @@ struct GameNotificationsSection: View {
                 .tint(Brand.navy700)
                 .disabled(systemDenied)
 
+                // Notifications refusées : explication et lien vers les
+                // Réglages de l'app.
                 if systemDenied {
                     InlineMessage(kind: .info, message: "Les notifications sont désactivées pour iClub dans les réglages de l'iPhone.")
                     Button("Ouvrir Réglages") {
@@ -91,6 +122,8 @@ struct GameNotificationsSection: View {
                 }
             }
         }
+        // À l'affichage : autorisation du système, puis réglage du compte (en
+        // cas d'échec de lecture, la valeur par défaut reste affichée).
         .task {
             await refreshSystemStatus()
             if let value = try? await PushService.loadPreference(profileId: profileId) {
@@ -105,6 +138,9 @@ struct GameNotificationsSection: View {
         }
     }
 
+    /// Interrupteur des propositions de parties : optimiste, il bascule tout
+    /// de suite, écrit `profiles.notifications_parties`, et revient en arrière
+    /// avec un message si l'écriture échoue.
     private var preferenceBinding: Binding<Bool> {
         Binding(
             get: { isOn },
@@ -129,6 +165,10 @@ struct GameNotificationsSection: View {
     }
 
     /// Réglage de l'appareil : les rappels sont programmés sur le téléphone.
+    ///
+    /// Activé : les réservations du membre sont relues et les rappels
+    /// reprogrammés. Désactivé : tous les rappels de réservation en attente
+    /// sont retirés.
     private var remindersBinding: Binding<Bool> {
         Binding(
             get: { remindersOn },
@@ -147,6 +187,7 @@ struct GameNotificationsSection: View {
         )
     }
 
+    /// Relit l'autorisation des notifications accordée par iOS.
     private func refreshSystemStatus() async {
         systemStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }

@@ -2,45 +2,101 @@
 //  AttendanceView.swift
 //  iClub
 //
-//  L'appel d'une séance. Un tap change l'état d'un élève et l'écrit tout de
-//  suite : pas de bouton « Enregistrer ». Quand tout le monde est pointé, la
-//  séance passe en « faite ».
+//  Rôle
+//    L'appel d'une séance. Un tap change l'état d'un élève et l'écrit tout de
+//    suite : pas de bouton « Enregistrer ». Quand tout le monde est pointé, la
+//    séance passe en « faite ».
 //
-//  La note de séance porte sur le groupe, jamais sur un élève.
+//    La note de séance porte sur le groupe, jamais sur un élève.
+//
+//  Place dans l'application
+//    Poussé dans la pile de l'onglet « Cours » (route `AttendanceRoute`) depuis
+//    l'agenda de la semaine, depuis la fiche d'un cours, ou directement par le
+//    tap sur le rappel local « Faire l'appel » (AttendanceReminders, ouvert par
+//    MainTabView). Mène à la petite fiche d'un élève et à l'annulation de la
+//    séance.
+//
+//  Données et écritures (CoachService)
+//    - lecture : table `activite_presences` de la séance ;
+//    - pointage : upsert dans `activite_presences` sur la paire (séance,
+//      inscription), avec `saisie_par` = l'utilisateur ; la RLS
+//      « presences_ecriture » le réserve à l'administrateur et à l'entraîneur
+//      titulaire du cours ;
+//    - fin de l'appel : `activite_seances.statut` passe de `prevue` à `faite` ;
+//    - note : `activite_seances.note_seance`, enregistrée en quittant le champ
+//      ou l'écran.
+//    Les élèves pointés sont les inscrits (`statut = inscrit`), pas la liste
+//    d'attente. Le web fait le même travail en un seul appel, par la fonction
+//    SQL `enregistrer_appel` ; l'app écrit en deux temps.
+//
+//  États
+//    Message d'erreur en ligne (lecture ou écriture refusée), « Aucun inscrit à
+//    pointer. », sinon une carte par élève. Le bouton « Tous présents » attend
+//    la fin de la lecture des présences.
+//
+//  Points d'attention
+//    - Écriture optimiste : l'écran change tout de suite et revient à l'état
+//      précédent si la base refuse.
+//    - Attention : si les présences s'écrivent mais que le passage de la séance
+//      en « faite » échoue, l'écran revient lui aussi à l'état précédent, alors
+//      que les présences sont bien enregistrées en base (elles réapparaissent
+//      à la prochaine ouverture).
+//    - « Tous présents » remplace aussi les absences déjà pointées.
 //
 
 import SwiftUI
 
+/// Écran d'appel d'une séance.
 struct AttendanceView: View {
+    /// Identifiant de la séance (`activite_seances.id`).
     let sessionId: UUID
+    /// Magasin de l'espace entraîneur.
     let store: CoachStore
 
+    /// Session : profil de l'entraîneur (`saisie_par`, chargement de secours).
     @Environment(AuthController.self) private var auth
+    /// Routeur, pour pousser la fiche complète d'un élève.
     @Environment(AppRouter.self) private var router
 
+    /// État de présence connu, par inscription (`activite_inscriptions.id`).
+    /// Absent du dictionnaire : élève pas encore pointé.
     @State private var states: [UUID: AttendanceState] = [:]
+    /// Note de séance en cours de saisie.
     @State private var note = ""
+    /// Dernière note enregistrée, pour n'écrire qu'en cas de changement.
     @State private var savedNote = ""
+    /// Lecture des présences terminée (avec ou sans erreur).
     @State private var isLoaded = false
+    /// Message d'erreur en ligne (lecture, pointage ou note).
     @State private var errorMessage: String?
+    /// Confirmation discrète sous la note (« Note enregistrée. »).
     @State private var noteStatus: String?
+    /// Feuille d'annulation de la séance ouverte.
     @State private var showsCancel = false
     /// Élève dont la petite fiche est ouverte.
     @State private var quickStudentId: UUID?
     /// Élève pour qui l'on précise « à l'heure » ou « en retard ».
     @State private var punctualityFor: UUID?
+    /// Focus clavier du champ de note.
     @FocusState private var noteFocused: Bool
 
+    /// La séance, lue dans le magasin.
     private var session: ActivitySession? { store.session(id: sessionId) }
+    /// Le cours de la séance.
     private var activity: Activity? { session.flatMap { store.activity(id: $0.activiteId) } }
+    /// Les élèves à pointer : les inscrits du cours, sans la liste d'attente.
     private var enrolled: [ActivityEnrollment] {
         guard let session else { return [] }
         return store.enrolled(in: session.activiteId)
     }
 
+    /// En-tête, note, erreur éventuelle et liste des élèves ; menu « ... »
+    /// d'annulation dans la barre.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Rien tant que la séance n'est pas dans le magasin (chargement
+                // de secours en cours, ou séance inconnue).
                 if let session {
                     header(session)
                     noteCard
@@ -59,6 +115,8 @@ struct AttendanceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .toolbar {
+            // Menu « ... » : annuler la séance, seulement tant qu'elle est
+            // prévue (désactivé sinon).
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if session?.statut == .prevue {
@@ -72,6 +130,7 @@ struct AttendanceView: View {
                 .disabled(session?.statut != .prevue)
             }
         }
+        // Feuille d'annulation (CoachCourseView.swift), puis rechargement.
         .sheet(isPresented: $showsCancel) {
             if let session {
                 CancelSessionSheet(session: session) { await store.reload() }
@@ -102,6 +161,10 @@ struct AttendanceView: View {
 
     // MARK: - En-tête
 
+    /// Nom du cours, date et horaire, bouton « Tous présents » et compteur de
+    /// pointage.
+    /// - Parameter session: la séance.
+    /// - Returns: l'en-tête.
     private func header(_ session: ActivitySession) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(activity?.nom ?? "Séance")
@@ -112,6 +175,7 @@ struct AttendanceView: View {
                 .foregroundStyle(Brand.textSecondary)
 
             HStack {
+                // Désactivé avant la lecture des présences, ou sans inscrit.
                 Button {
                     markAllPresent()
                 } label: {
@@ -132,6 +196,8 @@ struct AttendanceView: View {
         }
     }
 
+    /// « 3 / 8 pointés » : élèves inscrits qui ont un état, sur le nombre
+    /// d'inscrits.
     private var progressLabel: String {
         let done = enrolled.filter { states[$0.id] != nil }.count
         return "\(done) / \(enrolled.count) pointés"
@@ -139,6 +205,8 @@ struct AttendanceView: View {
 
     // MARK: - Note de séance
 
+    /// Carte de la note de séance, sur deux à cinq lignes, avec la
+    /// confirmation d'enregistrement.
     private var noteCard: some View {
         SurfaceCard(padding: 14) {
             VStack(alignment: .leading, spacing: 6) {
@@ -148,6 +216,7 @@ struct AttendanceView: View {
                     .lineLimit(2...5)
                     .focused($noteFocused)
                     .submitLabel(.done)
+                // « Note enregistrée. » après une écriture réussie.
                 if let noteStatus {
                     Text(noteStatus)
                         .font(.caption)
@@ -159,6 +228,7 @@ struct AttendanceView: View {
 
     // MARK: - Élèves
 
+    /// Les cartes des élèves inscrits, ou une phrase s'il n'y en a aucun.
     @ViewBuilder
     private var list: some View {
         if enrolled.isEmpty {
@@ -176,6 +246,12 @@ struct AttendanceView: View {
 
     /// Haut de la vignette (photo, nom) : ouvre la petite fiche. Dessous, deux
     /// boutons sur toute la largeur : Présent, Absent.
+    ///
+    /// « Présent » est allumé pour présent et retard, « Absent » pour absent et
+    /// excusé (l'état « excusé » ne se pose pas depuis l'app, mais il s'affiche
+    /// s'il a été saisi ailleurs).
+    /// - Parameter enrollment: l'inscription de l'élève.
+    /// - Returns: la carte de l'élève.
     private func studentRow(_ enrollment: ActivityEnrollment) -> some View {
         let current = states[enrollment.id]
         let student = StudentInfo(enrollment: enrollment, store: store)
@@ -193,6 +269,7 @@ struct AttendanceView: View {
                             Text(student.name)
                                 .font(.system(.subheadline, design: .rounded, weight: .semibold))
                                 .foregroundStyle(Brand.textPrimary)
+                            // État pointé, en clair et en couleur.
                             if let current {
                                 Text(statusLine(current))
                                     .font(.caption.weight(.medium))
@@ -230,6 +307,10 @@ struct AttendanceView: View {
         }
     }
 
+    /// Libellé de l'état sous le nom de l'élève.
+    /// - Parameter state: état de présence.
+    /// - Returns: « Présent, à l'heure », « Présent, en retard », « Absent » ou
+    ///   « Absent, excusé ».
     private func statusLine(_ state: AttendanceState) -> String {
         switch state {
         case .present: "Présent, à l'heure"
@@ -239,6 +320,15 @@ struct AttendanceView: View {
         }
     }
 
+    /// Bouton de choix pleine largeur : plein de sa couleur quand il est
+    /// choisi, teinté à 10 % sinon.
+    /// - Parameters:
+    ///   - title: texte du bouton.
+    ///   - systemImage: symbole SF Symbols.
+    ///   - tint: couleur du bouton.
+    ///   - isSelected: état allumé.
+    ///   - action: action à l'appui.
+    /// - Returns: le bouton.
     private func choiceButton(_ title: String, systemImage: String, tint: Color, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
@@ -252,18 +342,23 @@ struct AttendanceView: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
+    /// Ouvre le panneau « À l'heure / En retard » pour un seul élève à la fois.
+    /// - Parameter id: identifiant de l'inscription de l'élève.
+    /// - Returns: le lien d'ouverture du panneau.
     private func punctualityBinding(_ id: UUID) -> Binding<Bool> {
         Binding(get: { punctualityFor == id }, set: { if !$0 { punctualityFor = nil } })
     }
 
     // MARK: - Écritures
 
+    /// Reprend la note de la séance et lit ses présences déjà pointées.
     private func load() async {
         guard let session else { return }
         note = session.noteSeance ?? ""
         savedNote = note
         do {
             let rows = try await CoachService.attendance(sessionId: session.id)
+            // Une présence par inscription ; en cas de doublon, la dernière lue.
             states = Dictionary(rows.map { ($0.inscriptionId, $0.etat) }, uniquingKeysWith: { _, last in last })
         } catch {
             errorMessage = ActivityServiceError.from(error).localizedDescription
@@ -271,6 +366,10 @@ struct AttendanceView: View {
         isLoaded = true
     }
 
+    /// Pose un état pour un élève, s'il change.
+    /// - Parameters:
+    ///   - state: nouvel état.
+    ///   - enrollment: l'inscription de l'élève.
     private func set(_ state: AttendanceState, for enrollment: ActivityEnrollment) {
         guard states[enrollment.id] != state else { return }
         Haptics.selection()
@@ -285,8 +384,14 @@ struct AttendanceView: View {
 
     /// Optimiste : l'état change à l'écran, et revient en arrière si la base
     /// refuse.
+    ///
+    /// Une fois les présences écrites, si tous les inscrits ont un état et que
+    /// la séance était prévue, elle passe en « faite » et le magasin est
+    /// rechargé (pastille « Appel fait » dans l'agenda).
+    /// - Parameter changes: nouveaux états, par inscription.
     private func write(_ changes: [UUID: AttendanceState]) {
         guard let session else { return }
+        // État d'avant, pour revenir en arrière en cas d'échec.
         let previous = states
         states.merge(changes) { _, new in new }
         errorMessage = nil
@@ -298,11 +403,14 @@ struct AttendanceView: View {
         Task {
             do {
                 try await CoachService.setAttendance(rows)
+                // Appel complet : séance « faite » (écriture limitée aux
+                // séances encore prévues, voir CoachService).
                 if enrolled.allSatisfy({ states[$0.id] != nil }), session.statut == .prevue {
                     try await CoachService.markSessionDone(session.id)
                     await store.reload()
                 }
             } catch {
+                // Retour à l'état d'avant, avec le message de la base.
                 states = previous
                 errorMessage = error.localizedDescription
                 Haptics.failure()
@@ -310,6 +418,8 @@ struct AttendanceView: View {
         }
     }
 
+    /// Enregistre la note si elle a changé (vide : la note est effacée), puis
+    /// recharge le magasin pour que la fiche du cours la montre.
     private func saveNote() {
         guard note != savedNote else { return }
         let value = note
@@ -330,13 +440,21 @@ struct AttendanceView: View {
 // MARK: - À l'heure ou en retard
 
 /// Le panneau qui suit « Présent » : une roue « Statut », « À l'heure » par
-/// défaut, et « Fermer » en haut à droite — le menu déroulant d'iOS.
+/// défaut, et « Fermer » en haut à droite, comme le menu déroulant d'iOS.
+///
+/// Chaque cran de la roue écrit aussitôt l'état (présent ou retard) par
+/// `onChange` ; « Fermer » ne fait que refermer le panneau.
 private struct PunctualitySheet: View {
+    /// Position de la roue : vrai pour « En retard ». Initialisée avec l'état
+    /// courant de l'élève.
     @State var isLate: Bool
+    /// Appelée à chaque changement de la roue, avec la nouvelle valeur.
     let onChange: (Bool) -> Void
 
+    /// Fermeture du panneau.
     @Environment(\.dismiss) private var dismiss
 
+    /// Titre « Présent » et bouton « Fermer », puis la roue.
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -357,6 +475,7 @@ private struct PunctualitySheet: View {
             .pickerStyle(.wheel)
             .labelsHidden()
         }
+        // Panneau bas de 260 points, sans poignée.
         .presentationDetents([.height(260)])
         .presentationDragIndicator(.hidden)
         .onChange(of: isLate) { _, late in

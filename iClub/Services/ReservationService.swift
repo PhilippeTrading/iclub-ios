@@ -11,22 +11,57 @@
 //
 //  La base porte une contrainte d'unicité sur `(court_id, date, heure_debut)`
 //  pour les réservations confirmées. La seconde personne à confirmer le même
-//  créneau reçoit un `23505`, traduit en message lisible — jamais remonté brut.
+//  créneau reçoit un `23505`, traduit en message lisible, jamais remonté brut.
+//
+//  Place dans l'application
+//    Récapitulatif du tunnel (`BookingSummaryView`, confirmation), accueil,
+//    historique et détail d'une réservation (annulation, liste « mes
+//    réservations »), rappels locaux (`BookingReminders`).
+//
+//  Tables et garanties de la base
+//    - `reservations` : insertion par soi-même (`created_by = auth.uid()`),
+//      modification par le créateur ou l'administration, suppression par
+//      l'administration seulement (RLS `reservations_delete_admin`).
+//      Déclencheurs à l'insertion : `acces_terrain` (terrain fermé à un groupe
+//      du réservataire, refus P0001 au message rédigé) et `sous_reserve_pluie`.
+//      Index unique `reservations_no_double_booking` (créneau déjà pris).
+//    - `reservation_participants` : écriture par le créateur de la réservation.
+//
+//  Points d'attention
+//    - Attention : `ReservationInsert` écrit `statut_paiement = 'paye'` et un
+//      `mode_paiement` (`carte`, `lien`, `surplace`) qui ne respectent plus les
+//      contraintes de la base (voir Reservation.swift). Une réservation avec un
+//      montant à régler est donc refusée par la base, avec une erreur technique
+//      que `translate` ne reconnaît pas.
+//    - Attention : la suppression de rattrapage est réservée par la RLS à
+//      l'administration du club. Pour un adhérent, elle ne supprime rien, sans
+//      erreur : la réservation reste confirmée, sans participants (le web a la
+//      même limite).
+//    - Le web vérifie en plus qu'aucune réservation ni aucun blocage ne
+//      chevauche le créneau sur toute sa durée ; l'app s'en remet à l'index
+//      unique, qui ne voit que l'heure de début.
+//
+//  Fil d'exécution
+//    Acteur principal (isolement par défaut du projet), appels asynchrones.
 //
 
 import Foundation
 import Supabase
 
+/// Erreurs de réservation, avec leur message affichable.
 enum ReservationError: LocalizedError, Equatable {
     /// Quelqu'un a confirmé le même créneau entre l'affichage et le tap.
     case slotAlreadyTaken
     /// Les participants n'ont pas pu être enregistrés ; la réservation a été
     /// annulée pour ne pas laisser de donnée incohérente.
+    /// (Voir l'avertissement de l'en-tête : pour un adhérent, la suppression de
+    /// rattrapage n'aboutit pas.)
     case participantsFailed
     /// Refus de la base (P0001), à afficher tel quel : par exemple « Vous ne
     /// pouvez pas réserver ce terrain. Pour en savoir plus, contactez le club. »
     case refused(String)
 
+    /// Message montré sur le récapitulatif.
     var errorDescription: String? {
         switch self {
         case .refused(let message):
@@ -39,11 +74,26 @@ enum ReservationError: LocalizedError, Equatable {
     }
 }
 
+/// Réservations de terrain du membre.
 enum ReservationService {
 
     // MARK: - Confirmation
 
+    /// Enregistre une réservation et ses participants.
+    ///
+    /// - Parameters:
+    ///   - clubId: club du membre.
+    ///   - court: terrain réservé.
+    ///   - date: jour (écrit « AAAA-MM-JJ », fuseau de l'appareil).
+    ///   - slot: créneau (début et durée du terrain).
+    ///   - format: simple ou double.
+    ///   - participants: joueurs, réservataire en premier.
+    ///   - total: montant à régler, en euros (somme des suppléments).
+    ///   - paymentMode: mode de paiement choisi, `nil` si rien n'est dû.
+    ///   - createdBy: compte connecté (`created_by`).
     /// - Returns: l'identifiant de la réservation créée.
+    /// - Throws: `ReservationError` (créneau pris, refus de la base,
+    ///   participants refusés) ou l'erreur brute de l'insertion.
     static func confirm(
         clubId: UUID,
         court: Court,
@@ -56,6 +106,7 @@ enum ReservationService {
         createdBy: UUID
     ) async throws -> UUID {
 
+        // 1. La réservation (les erreurs sont traduites par `translate`).
         let reservationId = try await insertReservation(
             clubId: clubId,
             court: court,
@@ -67,6 +118,7 @@ enum ReservationService {
             createdBy: createdBy
         )
 
+        // 2. Les participants, en un seul lot ; en cas d'échec, rattrapage.
         do {
             try await insertParticipants(reservationId: reservationId, participants: participants)
         } catch {
@@ -82,6 +134,10 @@ enum ReservationService {
         return reservationId
     }
 
+    /// Insère la ligne `reservations` et rend son identifiant.
+    ///
+    /// - Returns: `reservations.id` de la ligne créée.
+    /// - Throws: l'erreur traduite par `translate`.
     private static func insertReservation(
         clubId: UUID,
         court: Court,
@@ -104,11 +160,14 @@ enum ReservationService {
             statut: ReservationInsert.confirmedStatus,
             statutPaiement: ReservationInsert.paymentStatus(total: total),
             montantTotal: total,
+            // Pas de mode de paiement quand rien n'est dû.
             modePaiement: total > 0 ? paymentMode?.rawValue : nil,
             createdBy: createdBy
         )
 
         do {
+            // `.select("id").single()` : la ligne créée est rendue, pour
+            // rattacher les participants.
             let inserted: InsertedReservationId = try await Supa.client
                 .from("reservations")
                 .insert(payload)
@@ -123,6 +182,12 @@ enum ReservationService {
         }
     }
 
+    /// Insère les participants en un seul appel.
+    ///
+    /// - Parameters:
+    ///   - reservationId: réservation qui vient d'être créée.
+    ///   - participants: joueurs à enregistrer.
+    /// - Throws: l'erreur brute de l'insertion.
     private static func insertParticipants(
         reservationId: UUID,
         participants: [BookingParticipant]
@@ -146,6 +211,12 @@ enum ReservationService {
 
     /// Suppression de rattrapage. Un échec ici ne peut plus être corrigé côté
     /// app : c'est l'erreur d'origine qui est remontée à l'utilisateur.
+    ///
+    /// Attention : un refus de la RLS (suppression réservée à
+    /// l'administration) n'est pas une erreur pour PostgREST ; il passe donc
+    /// inaperçu ici.
+    ///
+    /// - Parameter reservationId: réservation à supprimer.
     private static func rollback(reservationId: UUID) async {
         _ = try? await Supa.client
             .from("reservations")
@@ -158,7 +229,18 @@ enum ReservationService {
 
     /// L'annulation ne supprime pas la ligne : elle la met à jour. Le créneau
     /// redevient disponible pour tout le monde, et le crédit invité est
-    /// restitué de lui-même puisque le solde est recalculé, jamais stocké.
+    /// restitué de lui-même puisque le solde est recalculé, jamais stocké
+    /// (sous réserve de la règle des 2 heures, voir `CreditUsageRow`).
+    ///
+    /// Attention : sans `.select()` après la mise à jour, une annulation refusée
+    /// par la RLS (réservation créée par quelqu'un d'autre) ne touche aucune
+    /// ligne sans lever d'erreur : l'écran la croit réussie, et le rappel local
+    /// est retiré quand même.
+    ///
+    /// - Parameters:
+    ///   - reservationId: réservation à annuler.
+    ///   - profileId: compte qui annule (`cancelled_by`).
+    /// - Throws: l'erreur brute de la requête.
     static func cancel(reservationId: UUID, by profileId: UUID) async throws {
         try await Supa.client
             .from("reservations")
@@ -172,9 +254,23 @@ enum ReservationService {
     // MARK: - Mes réservations
 
     /// Réservations où je figure comme créateur **ou** comme participant.
+    ///
+    /// Limite connue : aucune pagination ; au-delà de la limite de lignes de
+    /// l'API (mille par défaut sur Supabase), la liste serait tronquée. La
+    /// liste des réservations jointes est aussi recopiée dans l'adresse de la
+    /// requête, qui s'allonge avec l'historique du membre.
+    ///
+    /// - Parameters:
+    ///   - clubId: club du membre.
+    ///   - profileId: profil du membre.
+    /// - Returns: réservations annulées comprises, triées par date puis heure ;
+    ///   une ligne sans date ou heure lisible est écartée.
+    /// - Throws: l'erreur brute de l'une des deux requêtes.
     static func loadMine(clubId: UUID, profileId: UUID) async throws -> [MyReservation] {
+        // 1. Les réservations où je suis joueur (créées ou non par moi).
         let joinedIds = try await joinedReservationIds(profileId: profileId)
 
+        // 2. Les réservations elles-mêmes, avec terrain et participants.
         let query = Supa.client
             .from("reservations")
             .select(MyReservationRow.columns)
@@ -191,6 +287,7 @@ enum ReservationService {
                 .execute()
                 .value
         } else {
+            // Créées par moi OU dont je suis participant (filtre `or` PostgREST).
             let list = joinedIds.map(\.uuidString).joined(separator: ",")
             rows = try await query
                 .or("created_by.eq.\(profileId.uuidString),id.in.(\(list))")
@@ -203,6 +300,12 @@ enum ReservationService {
         return rows.compactValues().compactMap { $0.toDomain(myProfileId: profileId) }
     }
 
+    /// Réservations où le profil figure comme participant, sans doublon.
+    ///
+    /// - Parameter profileId: profil du membre.
+    /// - Returns: identifiants de réservations (tous clubs confondus ; le
+    ///   filtre par club est fait par la requête suivante).
+    /// - Throws: l'erreur brute de la requête.
     private static func joinedReservationIds(profileId: UUID) async throws -> [UUID] {
         let rows: [Lenient<ParticipationRow>] = try await Supa.client
             .from("reservation_participants")
@@ -219,6 +322,13 @@ enum ReservationService {
     /// SQLSTATE d'une violation de contrainte d'unicité.
     private static let uniqueViolation = "23505"
 
+    /// Traduit une erreur d'insertion de réservation.
+    ///
+    /// - Parameter error: erreur du SDK.
+    /// - Returns: `slotAlreadyTaken` pour une violation d'unicité (créneau
+    ///   pris), `refused` pour un refus rédigé de la base (P0001, par exemple
+    ///   un terrain fermé à un groupe), l'erreur d'origine sinon (dont les
+    ///   violations de contrainte `check`, code 23514).
     private static func translate(_ error: any Error) -> any Error {
         if let postgrest = error as? PostgrestError, postgrest.code == uniqueViolation {
             return ReservationError.slotAlreadyTaken

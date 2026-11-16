@@ -7,30 +7,65 @@
 //
 //  Les photos et classements passent par `get_club_roster_info` : la fiche d'un
 //  autre membre n'est pas lisible directement. Le classement affiché dépend du
-//  sport — tennis pour un tennis, padel pour un padel, rien en pickleball.
+//  sport : tennis pour un tennis, padel pour un padel, rien en pickleball.
+//
+//  Place dans l'application
+//    Poussé par une carte de « Mes réservations » (`ReservationsView`, magasin
+//    partagé) ou par la carte de prochaine réservation de l'accueil
+//    (`HomeView`, qui fournit un magasin vide).
+//
+//  Données
+//    La réservation est reçue telle quelle ; seules les fiches des joueurs
+//    sont relues à l'affichage (`ClubDirectoryService.rosterInfo`).
+//
+//  Règles, et ce que la base revérifie
+//    Le bouton « Annuler la réservation » n'apparaît que pour le créateur
+//    d'une réservation non annulée, sans condition de date. L'annulation passe
+//    la ligne `reservations` à `annulee` (`ReservationService.cancel`) ; la
+//    RLS (`reservations_update`) ne l'autorise qu'au créateur ou à un
+//    administrateur. Pour une partie ouverte dont on est l'hôte, cette même
+//    annulation l'annule pour tous.
+//
+//  Points d'attention
+//    Ouvert depuis l'accueil, le magasin fourni n'est pas chargé : après une
+//    annulation, son `reload` ne fait rien et l'accueil se met à jour par son
+//    propre temps réel.
 //
 
 import SwiftUI
 
+/// Écran de détail d'une réservation.
 struct ReservationDetailView: View {
+    /// Réservation affichée, telle que lue par la liste ou l'accueil.
     let reservation: MyReservation
+    /// Magasin de la liste : fiches déjà chargées (pour un affichage
+    /// immédiat) et relecture après annulation.
     let store: ReservationsStore
 
+    /// Session : compte connecté, auteur de l'annulation.
     @Environment(AuthController.self) private var auth
+    /// Retour à l'écran précédent après annulation.
     @Environment(\.dismiss) private var dismiss
 
+    /// Fiches des joueurs (photo, classements), indexées par profil.
     @State private var roster: [UUID: RosterInfoRow] = [:]
+    /// Vrai jusqu'au retour de l'appel des fiches.
     @State private var isLoadingRoster = true
+    /// Vrai pendant que la demande de confirmation est affichée.
     @State private var isConfirmingCancel = false
+    /// Vrai pendant l'annulation.
     @State private var isCancelling = false
+    /// Message d'échec de l'annulation, `nil` s'il n'y en a pas.
     @State private var errorMessage: String?
 
+    /// Récapitulatif, joueurs, erreur éventuelle et bouton d'annulation.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 recapCard
                 participantsSection
 
+                // Échec de la dernière tentative d'annulation.
                 if let errorMessage {
                     InlineMessage(kind: .error, message: errorMessage)
                 }
@@ -45,6 +80,7 @@ struct ReservationDetailView: View {
         .navigationTitle("Réservation")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadRoster() }
+        // Confirmation avant d'annuler.
         .confirmationDialog(
             "Annuler cette réservation ?",
             isPresented: $isConfirmingCancel,
@@ -59,6 +95,8 @@ struct ReservationDetailView: View {
 
     // MARK: - Récapitulatif
 
+    /// Carte récapitulative : date et statut, horaire, terrain et sa
+    /// description.
     private var recapCard: some View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 12) {
@@ -75,6 +113,8 @@ struct ReservationDetailView: View {
 
                 Divider().opacity(0.4)
 
+                // Terrain : pictogramme du sport (générique s'il est
+                // inconnu), nom et « surface · intérieur ou extérieur ».
                 HStack(spacing: 12) {
                     Image(systemName: reservation.sport?.symbolName ?? "sportscourt")
                         .font(.system(size: 16, weight: .medium))
@@ -97,6 +137,10 @@ struct ReservationDetailView: View {
         }
     }
 
+    /// Teinte de la pastille de statut : rouge si annulée, bleu marine si
+    /// payée, vert sinon. Attention : « payée » repose sur
+    /// `statut_paiement = 'paye'`, valeur que la base n'emploie plus (voir
+    /// NextReservationCard.swift).
     private var statusTint: Color {
         if reservation.isCancelled { return Brand.error }
         return reservation.isPaid ? Brand.navy700 : Brand.success
@@ -104,6 +148,7 @@ struct ReservationDetailView: View {
 
     // MARK: - Participants
 
+    /// Section « Joueurs » : une carte par participant.
     private var participantsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Joueurs")
@@ -115,6 +160,11 @@ struct ReservationDetailView: View {
         }
     }
 
+    /// Carte d'un participant : photo, nom, classement du sport (ou
+    /// « Invité »), et pastille « Réservataire » pour le créateur.
+    ///
+    /// - Parameter participant: joueur affiché.
+    /// - Returns: la carte.
     private func participantRow(_ participant: MyReservation.Participant) -> some View {
         let info = participant.profileId.flatMap { roster[$0] }
         let ranking = info?.ranking(for: reservation.sport)
@@ -142,6 +192,7 @@ struct ReservationDetailView: View {
                         .font(.caption)
                         .foregroundStyle(Brand.textSecondary)
                 } else if isLoadingRoster {
+                    // Fiches pas encore arrivées : petite barre fantôme.
                     SkeletonBlock(height: 10, cornerRadius: 5)
                         .frame(width: 90)
                 }
@@ -149,6 +200,7 @@ struct ReservationDetailView: View {
 
             Spacer(minLength: 0)
 
+            // Le créateur de la réservation, que ce soit moi ou non.
             if let createdBy = reservation.createdBy, participant.profileId == createdBy {
                 BrandChip(title: "Réservataire", tint: Brand.navy700)
             }
@@ -160,11 +212,15 @@ struct ReservationDetailView: View {
 
     // MARK: - Annulation
 
+    /// Bouton rouge « Annuler la réservation », avec une roue pendant
+    /// l'envoi.
     @ViewBuilder
     private var cancelSection: some View {
         // Visible uniquement si j'ai créé la réservation : un simple
         // participant ne peut pas annuler la réservation d'un autre. Même règle
         // que dans la liste, sans test sur la date.
+        // (Un joueur non créateur d'une partie ouverte n'a pas de bouton ici :
+        // il la quitte depuis la liste.)
         if reservation.isOwner, !reservation.isCancelled {
             Button(role: .destructive) {
                 isConfirmingCancel = true
@@ -192,6 +248,7 @@ struct ReservationDetailView: View {
 
     // MARK: - Chargement
 
+    /// Lit les fiches des joueurs inscrits (les invités n'en ont pas).
     private func loadRoster() async {
         let ids = reservation.participants.compactMap(\.profileId)
         guard !ids.isEmpty else {
@@ -203,10 +260,14 @@ struct ReservationDetailView: View {
         // tout de suite, sans passer par les initiales le temps de l'appel.
         roster = store.roster
 
+        // Puis les fiches à jour ; un échec rend un dictionnaire vide.
         roster = await ClubDirectoryService.rosterInfo(profileIds: ids)
         isLoadingRoster = false
     }
 
+    /// Annule la réservation au nom du compte connecté, recharge la liste et
+    /// revient en arrière ; en cas d'échec, affiche le message sous les
+    /// joueurs.
     private func cancel() {
         guard let profile = auth.sessionProfile else { return }
         isCancelling = true
@@ -214,6 +275,8 @@ struct ReservationDetailView: View {
 
         Task {
             do {
+                // Passe la ligne à `annulee` (date et auteur de l'annulation),
+                // et retire le rappel local de la réservation.
                 try await ReservationService.cancel(reservationId: reservation.id, by: profile.id)
                 Haptics.destructive()
                 // Le solde de crédits n'a rien à restituer explicitement : il

@@ -183,7 +183,9 @@ private struct ConversationRow: View {
                     if conversation.nonLus > 0 {
                         Text("\(conversation.nonLus)")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            // Sur l'aplat bleu marine, très clair en mode
+                            // sombre : `textOnInverse` (voir BrandPalette).
+                            .foregroundStyle(Brand.textOnInverse)
                             .padding(.horizontal, 6)
                             .frame(minWidth: 20, minHeight: 20)
                             .background(Brand.navy700, in: .capsule)

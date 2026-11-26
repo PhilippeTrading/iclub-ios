@@ -13,6 +13,12 @@ struct DayStrip: View {
     let days: [Date]
     /// Accent du sport courant, pour que la bande change de teinte avec l'onglet.
     let accent: Color
+    /// Couleur du jour et du numéro dans la pastille sélectionnée, posés sur
+    /// l'aplat `accent`. Blanc par défaut, qui convient aux accents sport. Avec
+    /// l'accent bleu marine (tous sports confondus, dans les parties), passer
+    /// `Brand.textOnInverse` : cet aplat devient très clair en mode sombre et
+    /// un texte blanc y disparaîtrait.
+    var selectedForeground: Color = .white
     @Binding var selection: Date
     /// Jours sélectionnables. Les autres restent visibles, estompés : la
     /// semaine garde sa continuité, sans promettre ce qu'elle n'a pas.
@@ -58,12 +64,14 @@ struct DayStrip: View {
                 Text(day.frenchWeekdayAbbreviation)
                     .font(.system(.caption, design: .rounded, weight: .semibold))
                     .textCase(.uppercase)
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Brand.textSecondary)
+                    // Pastille choisie : la couleur prévue pour son aplat (voir
+                    // `selectedForeground`), un peu adoucie pour le jour.
+                    .foregroundStyle(isSelected ? selectedForeground.opacity(0.85) : Brand.textSecondary)
 
                 Text(day.frenchDayNumber)
                     .font(.numeral(.title2))
                     .monospacedDigit()
-                    .foregroundStyle(isSelected ? Color.white : Brand.textPrimary)
+                    .foregroundStyle(isSelected ? selectedForeground : Brand.textPrimary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)

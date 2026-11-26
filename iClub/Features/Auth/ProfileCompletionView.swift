@@ -183,7 +183,9 @@ struct ProfileCompletionView: View {
                         Text(option.rawValue)
                             .font(.system(.subheadline, design: .rounded, weight: .semibold))
                             .frame(width: 42, height: 32)
-                            .foregroundStyle(isSelected ? Color.white : Brand.textSecondary)
+                            // Choisi : aplat bleu marine, très clair en mode
+                            // sombre, d'où `textOnInverse` (voir BrandPalette).
+                            .foregroundStyle(isSelected ? Brand.textOnInverse : Brand.textSecondary)
                             .background {
                                 Capsule(style: .continuous)
                                     .fill(isSelected ? Brand.navy700 : Brand.textSecondary.opacity(0.12))

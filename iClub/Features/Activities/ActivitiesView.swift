@@ -195,7 +195,10 @@ struct ActivitiesView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .foregroundStyle(isSelected ? Color.white : tint)
+            // Pastille choisie : texte blanc sur l'accent d'un sport, mais
+            // `textOnInverse` sur le bleu marine de « Tous », très clair en mode
+            // sombre, où un texte blanc ne se lisait plus (fiche D13).
+            .foregroundStyle(isSelected ? (sport == nil ? Brand.textOnInverse : Color.white) : tint)
             .background {
                 Capsule(style: .continuous)
                     .fill(isSelected ? tint : tint.opacity(0.12))

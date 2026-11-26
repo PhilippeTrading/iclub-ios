@@ -230,7 +230,9 @@ struct ProfileView: View {
                     if !isUploadingPhoto {
                         Image(systemName: "camera.fill")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white)
+                            // Sur l'aplat bleu marine, très clair en mode
+                            // sombre : `textOnInverse` (voir BrandPalette).
+                            .foregroundStyle(Brand.textOnInverse)
                             .frame(width: 22, height: 22)
                             .background(Brand.navy700, in: .circle)
                             .overlay {

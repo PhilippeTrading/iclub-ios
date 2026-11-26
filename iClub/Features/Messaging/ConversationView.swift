@@ -183,7 +183,10 @@ struct ConversationView: View {
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
+                    // Envoi possible : aplat bleu marine, très clair en mode
+                    // sombre, d'où `textOnInverse` (voir BrandPalette). Bouton
+                    // inactif : flèche blanche sur le gris, comme avant.
+                    .foregroundStyle(canSend ? Brand.textOnInverse : Color.white)
                     .frame(width: 40, height: 40)
                     .background(canSend ? Brand.navy700 : Brand.textSecondary.opacity(0.4), in: .circle)
             }

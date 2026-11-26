@@ -254,9 +254,14 @@ struct OpenGamesView: View {
                 sportFilterBar
 
                 if !sections.isEmpty {
+                    // Tous sports confondus, le jour choisi prend l'aplat bleu
+                    // marine, très clair en mode sombre : son texte prend
+                    // `textOnInverse` (blanc en clair, sombre en sombre). Un sport
+                    // filtré garde son accent et le texte blanc.
                     DayStrip(
                         days: stripDays(sections),
                         accent: sportFilter?.accent ?? Brand.navy700,
+                        selectedForeground: sportFilter == nil ? Brand.textOnInverse : .white,
                         selection: daySelection(sections, proxy: proxy),
                         isEnabled: { gameDays.contains($0) }
                     )
@@ -351,7 +356,10 @@ struct OpenGamesView: View {
                 .font(.system(.footnote, design: .rounded, weight: .semibold))
                 .padding(.horizontal, 13)
                 .padding(.vertical, 8)
-                .foregroundStyle(isSelected ? Color.white : tint)
+                // Pastille choisie : texte blanc sur l'accent d'un sport, mais
+                // `textOnInverse` sur le bleu marine de « Tous les sports »,
+                // très clair en mode sombre (voir BrandPalette).
+                .foregroundStyle(isSelected ? (sport == nil ? Brand.textOnInverse : Color.white) : tint)
                 .background {
                     Capsule(style: .continuous)
                         .fill(isSelected ? tint : tint.opacity(0.12))
@@ -679,13 +687,18 @@ private struct DaySection: Identifiable {
 }
 
 /// Séparateur de jour : « Aujourd'hui », « Demain », « Samedi 24 octobre ».
+///
+/// Pastille inversée : aplat de la couleur du texte principal (sombre en mode
+/// clair, presque blanc en mode sombre) et texte `textOnInverse` (blanc en mode
+/// clair, sombre en mode sombre). Un texte blanc fixe y était illisible en mode
+/// sombre, blanc sur blanc (fiche D13).
 private struct DayHeader: View {
     let day: Date
 
     var body: some View {
         Label(day.relativeFrenchDayTitle, systemImage: "calendar")
             .font(.system(.subheadline, design: .rounded, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Brand.textOnInverse)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(Brand.textPrimary, in: .capsule)
